@@ -1,0 +1,12 @@
+appId: com.glenlee.slack-ai-reply-helper
+productName: Slack Reply Helper
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip

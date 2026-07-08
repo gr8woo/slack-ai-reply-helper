@@ -207,6 +207,7 @@ export function App() {
       <AppShell width="compact">
         <ConnectionView
           errorMessage={snapshot.errorMessage}
+          savedClientId={snapshot.slackClientId}
           status={snapshot.connectionStatus}
           onRetry={() => {
             void slackReplyApi.getSnapshot().then((nextSnapshot) => {
@@ -295,16 +296,24 @@ function AppShell({ children, width }: { children: React.ReactNode; width: "comp
 function ConnectionView({
   errorMessage,
   onRetry,
+  savedClientId,
   status
 }: {
   errorMessage?: string;
   onRetry: () => void;
+  savedClientId?: string;
   status: "connected" | "missing_token" | "error";
 }) {
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(savedClientId ?? "");
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState<"oauth" | "token" | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (savedClientId && !clientId) {
+      setClientId(savedClientId);
+    }
+  }, [clientId, savedClientId]);
 
   async function connectOAuth() {
     setBusy("oauth");
@@ -347,13 +356,13 @@ function ConnectionView({
       <h1>Slack 연결이 필요해요</h1>
       <p>
         {status === "missing_token"
-          ? "실제 Slack 메시지를 읽으려면 Slack Web API 토큰을 환경 변수로 설정해야 합니다."
+          ? "설치된 Slack 앱의 내부 토큰은 읽지 않고, 공식 OAuth로 한 번 연결해 로컬에 암호화 저장합니다."
           : "Slack API에서 메시지를 불러오지 못했습니다."}
       </p>
       {(localError || errorMessage) && <div className="connection-error">{localError ?? errorMessage}</div>}
       <div className="connection-steps">
         <strong>OAuth 설정 체크리스트</strong>
-        <p className="connection-note">Slack 데스크톱 앱 환경설정이 아니라 <b>api.slack.com/apps</b>의 개발자 앱 설정입니다.</p>
+        <p className="connection-note">Slack 데스크톱 앱 환경설정이 아니라 <b>api.slack.com/apps</b>의 개발자 앱 설정입니다. 최초 1회 연결 후에는 Client ID와 토큰을 로컬에 저장합니다.</p>
         <ol>
           <li><b>api.slack.com/apps</b>에서 앱 생성 또는 선택</li>
           <li><b>OAuth &amp; Permissions</b>에서 Redirect URL 추가</li>

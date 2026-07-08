@@ -61,6 +61,8 @@ export class SlackOAuthService {
       return { ok: false, errorMessage: "현재 앱 내 OAuth는 localhost redirect URI만 지원합니다." };
     }
 
+    this.tokenStore.saveSlackClientId(trimmedClientId);
+
     const callbackPromise = this.waitForCallback(redirect, state);
     const authorizeUrl = new URL("https://slack.com/oauth/v2/authorize");
     authorizeUrl.searchParams.set("client_id", trimmedClientId);
@@ -79,6 +81,7 @@ export class SlackOAuthService {
       redirectUri: redirect.toString()
     });
 
+    this.tokenStore.saveSlackClientId(trimmedClientId);
     this.tokenStore.saveToken(token);
     return { ok: true };
   }

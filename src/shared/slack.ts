@@ -73,6 +73,7 @@ export interface SlackReplySnapshot {
   settings: SlackReplySettings;
   connected: boolean;
   connectionStatus: "connected" | "missing_token" | "error";
+  slackClientId?: string;
   errorMessage?: string;
 }
 

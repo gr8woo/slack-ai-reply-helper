@@ -22,6 +22,8 @@ npm run dev
 
 앱 첫 화면에서 두 가지 방식 중 하나로 연결할 수 있습니다.
 
+설치된 Slack 데스크톱 앱의 내부 토큰이나 쿠키를 추출해서 사용하지 않습니다. 인증은 Slack 공식 OAuth 또는 사용자가 직접 제공한 토큰만 사용하고, 저장된 토큰은 Electron `safeStorage`로 로컬 암호화합니다.
+
 ### 1. Slack OAuth 연결
 
 Slack OAuth는 사용자가 토큰을 직접 복사하지 않고 Slack 승인 화면에서 앱에 권한을 주는 방식입니다. 이 앱은 데스크톱 앱이라 Slack 앱 설정에서 PKCE를 켜야 합니다. PKCE는 client secret을 앱에 넣지 않고도 OAuth를 안전하게 끝내기 위한 데스크톱/모바일용 보안 방식입니다.
@@ -42,7 +44,7 @@ Slack 앱 설정 순서:
 7. `Basic Information > App Credentials`의 `Client ID`를 복사합니다. `Client Secret`은 이 데스크톱 앱에 넣지 않습니다.
 8. 이 앱 첫 화면에 `Client ID`를 붙여넣고 `Slack OAuth로 연결`을 누릅니다.
 
-앱 첫 화면에 Slack Client ID를 입력하고 `Slack OAuth로 연결`을 누르면 브라우저에서 Slack 승인 화면이 열립니다. 승인 후 토큰은 Electron `safeStorage`로 암호화되어 로컬 앱 데이터에 저장됩니다.
+앱 첫 화면에 Slack Client ID를 입력하고 `Slack OAuth로 연결`을 누르면 브라우저에서 Slack 승인 화면이 열립니다. Client ID는 다음 연결을 위해 로컬 앱 데이터에 저장되고, 승인 후 토큰은 Electron `safeStorage`로 암호화되어 로컬 앱 데이터에 저장됩니다.
 
 필요 user scopes:
 

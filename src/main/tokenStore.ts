@@ -4,6 +4,7 @@ import path from "node:path";
 
 interface StoredAuth {
   encryptedToken: string;
+  slackClientId?: string;
 }
 
 export class TokenStore {
@@ -15,11 +16,11 @@ export class TokenStore {
       return envToken;
     }
 
-    if (!fs.existsSync(this.filePath)) {
+    const stored = this.readStoredAuth();
+    if (!stored.encryptedToken) {
       return undefined;
     }
 
-    const stored = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as StoredAuth;
     const encrypted = Buffer.from(stored.encryptedToken, "base64");
 
     if (!safeStorage.isEncryptionAvailable()) {
@@ -30,18 +31,46 @@ export class TokenStore {
   }
 
   saveToken(token: string): void {
+    const current = this.readStoredAuth();
     if (!safeStorage.isEncryptionAvailable()) {
       throw new Error("macOS safeStorage encryption is not available.");
     }
 
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const encryptedToken = safeStorage.encryptString(token).toString("base64");
-    fs.writeFileSync(this.filePath, JSON.stringify({ encryptedToken }, null, 2), { mode: 0o600 });
+    this.writeStoredAuth({ ...current, encryptedToken });
+  }
+
+  getSlackClientId(): string | undefined {
+    return this.readStoredAuth().slackClientId ?? process.env.SLACK_CLIENT_ID;
+  }
+
+  saveSlackClientId(clientId: string): void {
+    const trimmed = clientId.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const current = this.readStoredAuth();
+    this.writeStoredAuth({ ...current, slackClientId: trimmed });
   }
 
   clear(): void {
     if (fs.existsSync(this.filePath)) {
       fs.unlinkSync(this.filePath);
     }
+  }
+
+  private readStoredAuth(): Partial<StoredAuth> {
+    if (!fs.existsSync(this.filePath)) {
+      return {};
+    }
+
+    return JSON.parse(fs.readFileSync(this.filePath, "utf8")) as Partial<StoredAuth>;
+  }
+
+  private writeStoredAuth(auth: Partial<StoredAuth>): void {
+    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    fs.writeFileSync(this.filePath, JSON.stringify(auth, null, 2), { mode: 0o600 });
   }
 }

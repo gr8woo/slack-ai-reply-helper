@@ -137,7 +137,8 @@ export class SlackWebApiReplyService {
         sent: this.sent,
         settings: this.settings,
         connected: true,
-        connectionStatus: "connected"
+        connectionStatus: "connected",
+        slackClientId: this.tokenStore.getSlackClientId()
       };
     } catch (error) {
       return this.disconnected("error", error instanceof Error ? error.message : "Slack 연결 중 오류가 발생했습니다.");
@@ -224,6 +225,7 @@ export class SlackWebApiReplyService {
       settings: this.settings,
       connected: false,
       connectionStatus,
+      slackClientId: this.tokenStore.getSlackClientId(),
       errorMessage
     };
   }

@@ -1,0 +1,57 @@
+.env.example
+  h_fd5bf09aa38af4 1-11
+.gitignore
+  h_fd5bf09aa38af4 1-10
+README.md
+  h_fd5bf09aa38af4 1-100
+electron-builder.yml
+  h_fd5bf09aa38af4 1-12
+index.html
+  h_fd5bf09aa38af4 1-13
+package-lock.json
+  h_fd5bf09aa38af4 1-7531
+package.json
+  h_fd5bf09aa38af4 1-37
+src/main/aiDraftService.ts
+  h_fd5bf09aa38af4 1-219
+src/main/env.ts
+  h_fd5bf09aa38af4 1-32
+src/main/main.ts
+  h_fd5bf09aa38af4 1-73
+src/main/slackOAuthService.ts
+  h_fd5bf09aa38af4 1-184
+src/main/slackWebApiService.ts
+  h_fd5bf09aa38af4 1-459
+src/main/tokenStore.ts
+  h_fd5bf09aa38af4 1-47
+src/preload/preload.ts
+  h_fd5bf09aa38af4 1-29
+src/renderer/App.tsx
+  h_fd5bf09aa38af4 1-845
+src/renderer/api.ts
+  h_fd5bf09aa38af4 1-69
+src/renderer/main.tsx
+  h_fd5bf09aa38af4 1-16
+src/renderer/styles.css
+  h_fd5bf09aa38af4 1-1393
+src/shared/slack.ts
+  h_fd5bf09aa38af4 1-119
+tsconfig.json
+  h_fd5bf09aa38af4 1-7
+tsconfig.main.json
+  h_fd5bf09aa38af4 1-22
+tsconfig.renderer.json
+  h_fd5bf09aa38af4 1-20
+vite.config.ts
+  h_fd5bf09aa38af4 1-15
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "e1464b9153b9bb02cbd4c2eba66668af58c48e21",
+  "prompts": {},
+  "humans": {
+    "h_fd5bf09aa38af4": {
+      "author": "gr8woo@zigbang.com"
+    }
+  }
+}

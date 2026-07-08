@@ -1,0 +1,23 @@
+README.md
+  h_fd5bf09aa38af4 25-26,47
+src/main/slackOAuthService.ts
+  h_fd5bf09aa38af4 64-65,84
+src/main/slackWebApiService.ts
+  h_fd5bf09aa38af4 140-141,228
+src/main/tokenStore.ts
+  h_fd5bf09aa38af4 7,19-20,34,41-55,63-75
+src/renderer/App.tsx
+  h_fd5bf09aa38af4 210,299,304,307,312-317,359,365
+src/shared/slack.ts
+  h_fd5bf09aa38af4 76
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "3a2630712fd2b739f0d4322206fdb0608c040241",
+  "prompts": {},
+  "humans": {
+    "h_fd5bf09aa38af4": {
+      "author": "gr8woo@zigbang.com"
+    }
+  }
+}

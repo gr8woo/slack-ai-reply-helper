@@ -72,6 +72,20 @@ const defaultSettings: SlackReplySettings = {
   }
 };
 
+const conversationCacheTtlMs = 10 * 60 * 1000;
+const maxConversationPages = 3;
+const maxSlackApiRetries = 2;
+const slackApiTimeoutMs = 15000;
+
+interface SlackApiOptions {
+  attempt?: number;
+  retryOnRateLimit?: boolean;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function initials(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) {
@@ -128,6 +142,7 @@ export class SlackWebApiReplyService {
   private userId: string | null = null;
   private users = new Map<string, SlackUser>();
   private conversations = new Map<string, SlackConversation>();
+  private conversationsLoadedAt = 0;
 
   constructor(private readonly tokenStore: TokenStore, private readonly aiDraftService: AiDraftService) {}
 
@@ -263,8 +278,13 @@ export class SlackWebApiReplyService {
   }
 
   private async fetchConversations(): Promise<SlackConversation[]> {
+    if (this.conversations.size > 0 && Date.now() - this.conversationsLoadedAt < conversationCacheTtlMs) {
+      return Array.from(this.conversations.values());
+    }
+
     const conversations: SlackConversation[] = [];
     let cursor: string | undefined;
+    let pageCount = 0;
 
     do {
       const response = await this.api<{ channels: SlackConversation[]; response_metadata?: { next_cursor?: string } }>(
@@ -279,10 +299,22 @@ export class SlackWebApiReplyService {
 
       conversations.push(...response.channels.filter((channel) => !channel.is_archived));
       cursor = response.response_metadata?.next_cursor || undefined;
-    } while (cursor);
+      pageCount += 1;
+    } while (cursor && pageCount < maxConversationPages);
 
-    conversations.forEach((conversation) => this.conversations.set(conversation.id, conversation));
-    return conversations;
+    this.conversations = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    this.settings.channels.forEach((channel) => {
+      if (!this.conversations.has(channel.id)) {
+        this.conversations.set(channel.id, {
+          id: channel.id,
+          name: channel.label.replace(/^#\s*/, ""),
+          is_im: channel.label === "DM",
+          is_mpim: channel.label === "그룹 DM"
+        });
+      }
+    });
+    this.conversationsLoadedAt = Date.now();
+    return Array.from(this.conversations.values());
   }
 
   private ensureSettingsChannels(conversations: SlackConversation[]): void {
@@ -301,12 +333,10 @@ export class SlackWebApiReplyService {
       : conversations.filter((conversation) => conversation.is_im || conversation.is_private).slice(0, 12);
     const selected = preferred.length > 0 ? preferred : conversations.slice(0, 12);
     const knownChannels = new Map(availableChannels.map((channel) => [channel.id, channel]));
-    const existingChannels = this.settings.channels
-      .filter((channel) => knownChannels.has(channel.id))
-      .map((channel) => ({
-        ...channel,
-        label: knownChannels.get(channel.id)?.label ?? channel.label
-      }));
+    const existingChannels = this.settings.channels.map((channel) => ({
+      ...channel,
+      label: knownChannels.get(channel.id)?.label ?? channel.label
+    }));
     const selectedChannels = existingChannels.length > 0
       ? existingChannels
       : selected.map((conversation) => ({
@@ -339,11 +369,15 @@ export class SlackWebApiReplyService {
 
       let history: { messages: SlackMessage[] };
       try {
-        history = await this.api<{ messages: SlackMessage[] }>("conversations.history", {
-          channel: channel.id,
-          limit: "20",
-          oldest: String(since24h)
-        });
+        history = await this.api<{ messages: SlackMessage[] }>(
+          "conversations.history",
+          {
+            channel: channel.id,
+            limit: "20",
+            oldest: String(since24h)
+          },
+          { retryOnRateLimit: false }
+        );
       } catch {
         continue;
       }
@@ -353,9 +387,13 @@ export class SlackWebApiReplyService {
         .slice(0, 8);
 
       for (const message of messages) {
-        const item = await this.toPendingMessage(conversation, message);
-        if (item) {
-          pending.push(item);
+        try {
+          const item = await this.toPendingMessage(conversation, message);
+          if (item) {
+            pending.push(item);
+          }
+        } catch {
+          continue;
         }
       }
     }
@@ -473,7 +511,13 @@ export class SlackWebApiReplyService {
     return `# ${conversation.name ?? conversation.id}`;
   }
 
-  private async api<T extends object>(method: string, params: Record<string, string | undefined>): Promise<T> {
+  private async api<T extends object>(
+    method: string,
+    params: Record<string, string | undefined>,
+    options: SlackApiOptions = {}
+  ): Promise<T> {
+    const attempt = options.attempt ?? 0;
+    const retryOnRateLimit = options.retryOnRateLimit ?? true;
     const credentials = this.tokenStore.getAuthCredentials();
     if (!credentials?.token) {
       throw new Error("Slack token is missing.");
@@ -499,11 +543,35 @@ export class SlackWebApiReplyService {
       headers.Authorization = `Bearer ${credentials.token}`;
     }
 
-    const response = await fetch(`https://slack.com/api/${method}`, {
-      method: "POST",
-      headers,
-      body: form
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), slackApiTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(`https://slack.com/api/${method}`, {
+        method: "POST",
+        headers,
+        body: form,
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Slack API ${method} 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (response.status === 429) {
+      const retryAfterSeconds = Number.parseInt(response.headers.get("Retry-After") ?? "2", 10);
+      const retryAfterMs = Math.min(Math.max(Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 2, 1), 8) * 1000;
+      if (retryOnRateLimit && attempt < maxSlackApiRetries) {
+        await sleep(retryAfterMs);
+        return this.api<T>(method, params, { ...options, attempt: attempt + 1 });
+      }
+
+      throw new Error(`Slack API ${method} 요청이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.`);
+    }
 
     if (!response.ok) {
       throw new Error(`Slack API HTTP ${response.status}: ${method}`);

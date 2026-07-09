@@ -155,8 +155,6 @@ async function runCodex(codexPath: string, prompt: string): Promise<string> {
         "exec",
         "--sandbox",
         "read-only",
-        "--ask-for-approval",
-        "never",
         "--skip-git-repo-check",
         "--ephemeral",
         "--output-last-message",

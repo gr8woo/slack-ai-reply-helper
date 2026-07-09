@@ -30,6 +30,11 @@ interface SlackConversation {
   is_mpim?: boolean;
   is_private?: boolean;
   is_archived?: boolean;
+  latest?: {
+    ts?: string;
+  };
+  last_read?: string;
+  updated?: number;
   user?: string;
 }
 
@@ -133,6 +138,30 @@ function normalizeText(text: string, users: Map<string, SlackUser>): string {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
+}
+
+function isWatchableConversation(conversation: SlackConversation): boolean {
+  return !conversation.is_archived && !conversation.is_mpim;
+}
+
+function conversationActivityTimestamp(conversation: SlackConversation): number {
+  const candidates = [
+    conversation.updated,
+    conversation.latest?.ts ? Number.parseFloat(conversation.latest.ts) : undefined,
+    conversation.last_read ? Number.parseFloat(conversation.last_read) : undefined
+  ];
+  const recent = candidates.find((value) => typeof value === "number" && Number.isFinite(value) && value > 0);
+  return recent ?? 0;
+}
+
+function sortConversationsByRecentActivity(conversations: SlackConversation[]): SlackConversation[] {
+  return [...conversations].sort((left, right) => {
+    const activityDelta = conversationActivityTimestamp(right) - conversationActivityTimestamp(left);
+    if (activityDelta !== 0) {
+      return activityDelta;
+    }
+    return (left.name ?? left.id).localeCompare(right.name ?? right.id);
+  });
 }
 
 export class SlackWebApiReplyService {
@@ -293,18 +322,19 @@ export class SlackWebApiReplyService {
           cursor,
           exclude_archived: "true",
           limit: "200",
-          types: "public_channel,private_channel,im,mpim"
+          types: "public_channel,private_channel,im"
         }
       );
 
-      conversations.push(...response.channels.filter((channel) => !channel.is_archived));
+      conversations.push(...response.channels.filter(isWatchableConversation));
       cursor = response.response_metadata?.next_cursor || undefined;
       pageCount += 1;
     } while (cursor && pageCount < maxConversationPages);
 
-    this.conversations = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    const sortedConversations = sortConversationsByRecentActivity(conversations);
+    this.conversations = new Map(sortedConversations.map((conversation) => [conversation.id, conversation]));
     this.settings.channels.forEach((channel) => {
-      if (!this.conversations.has(channel.id)) {
+      if (!this.conversations.has(channel.id) && channel.label !== "그룹 DM") {
         this.conversations.set(channel.id, {
           id: channel.id,
           name: channel.label.replace(/^#\s*/, ""),
@@ -314,12 +344,14 @@ export class SlackWebApiReplyService {
       }
     });
     this.conversationsLoadedAt = Date.now();
-    return Array.from(this.conversations.values());
+    return sortConversationsByRecentActivity(Array.from(this.conversations.values()));
   }
 
   private ensureSettingsChannels(conversations: SlackConversation[]): void {
     const hadSavedChannels = this.settings.channels.length > 0;
-    const availableChannels = conversations.map((conversation) => ({
+    const removedGroupDmChannels = this.settings.channels.some((channel) => channel.label === "그룹 DM");
+    const watchableConversations = sortConversationsByRecentActivity(conversations.filter(isWatchableConversation));
+    const availableChannels = watchableConversations.map((conversation) => ({
       id: conversation.id,
       label: this.conversationLabel(conversation)
     }));
@@ -329,16 +361,29 @@ export class SlackWebApiReplyService {
       .map((id) => id.trim())
       .filter(Boolean);
     const preferred = preferredIds.length > 0
-      ? conversations.filter((conversation) => preferredIds.includes(conversation.id))
-      : conversations.filter((conversation) => conversation.is_im || conversation.is_private).slice(0, 12);
-    const selected = preferred.length > 0 ? preferred : conversations.slice(0, 12);
+      ? watchableConversations.filter((conversation) => preferredIds.includes(conversation.id))
+      : watchableConversations.filter((conversation) => conversation.is_im || conversation.is_private).slice(0, 12);
+    const selected = preferred.length > 0 ? preferred : watchableConversations.slice(0, 12);
     const knownChannels = new Map(availableChannels.map((channel) => [channel.id, channel]));
-    const existingChannels = this.settings.channels.map((channel) => ({
-      ...channel,
-      label: knownChannels.get(channel.id)?.label ?? channel.label
-    }));
+    const knownConversations = new Map(watchableConversations.map((conversation) => [conversation.id, conversation]));
+    const sortChannelSettings = (channels: SlackReplySettings["channels"]) =>
+      [...channels].sort((left, right) => {
+        const activityDelta =
+          conversationActivityTimestamp(knownConversations.get(right.id) ?? { id: right.id }) -
+          conversationActivityTimestamp(knownConversations.get(left.id) ?? { id: left.id });
+        if (activityDelta !== 0) {
+          return activityDelta;
+        }
+        return left.label.localeCompare(right.label);
+      });
+    const existingChannels = this.settings.channels
+      .filter((channel) => channel.label !== "그룹 DM")
+      .map((channel) => ({
+        ...channel,
+        label: knownChannels.get(channel.id)?.label ?? channel.label
+      }));
     const selectedChannels = existingChannels.length > 0
-      ? existingChannels
+      ? sortChannelSettings(existingChannels)
       : selected.map((conversation) => ({
         id: conversation.id,
         label: this.conversationLabel(conversation),
@@ -351,7 +396,7 @@ export class SlackWebApiReplyService {
       channels: selectedChannels
     };
 
-    if (!hadSavedChannels && selectedChannels.length > 0) {
+    if ((!hadSavedChannels && selectedChannels.length > 0) || removedGroupDmChannels) {
       this.settingsStore.save(this.settings);
     }
   }
@@ -363,7 +408,7 @@ export class SlackWebApiReplyService {
 
     for (const channel of enabledChannels) {
       const conversation = this.conversations.get(channel.id);
-      if (!conversation) {
+      if (!conversation || conversation.is_mpim) {
         continue;
       }
 

@@ -373,7 +373,7 @@ function ConnectionView({
       <h1>Slack 연결이 필요해요</h1>
       <p>
         {status === "missing_token"
-          ? "설치된 Slack 앱의 내부 토큰은 읽지 않고, 공식 OAuth로 한 번 연결해 로컬에 암호화 저장합니다."
+          ? "기본은 공식 OAuth이고, 필요하면 설치된 Slack 앱 세션을 로컬에서 가져와 암호화 저장할 수 있습니다."
           : "Slack API에서 메시지를 불러오지 못했습니다."}
       </p>
       {(localError || errorMessage) && <div className="connection-error">{localError ?? errorMessage}</div>}

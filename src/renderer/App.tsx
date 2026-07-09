@@ -53,9 +53,12 @@ export function App() {
   const [draftError, setDraftError] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [lastReply, setLastReply] = useState<SentSlackReply | null>(null);
   const [undoSeconds, setUndoSeconds] = useState(5);
   const viewRef = useRef<View>("inbox");
+  const refreshMessageTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     viewRef.current = view;
@@ -90,11 +93,44 @@ export function App() {
   }, []);
 
   const refreshSnapshot = useCallback(async (
-    options: { forceEmpty?: boolean; forceShowInbox?: boolean; syncDefaultTone?: boolean } = {}
+    options: { forceEmpty?: boolean; forceShowInbox?: boolean; showActivity?: boolean; syncDefaultTone?: boolean } = {}
   ) => {
-    const nextSnapshot = await slackReplyApi.getSnapshot();
-    applySnapshot(nextSnapshot, options);
+    if (options.showActivity) {
+      if (refreshMessageTimerRef.current) {
+        window.clearTimeout(refreshMessageTimerRef.current);
+      }
+      setIsRefreshing(true);
+      setRefreshMessage("Slack 확인 중...");
+    }
+
+    try {
+      const nextSnapshot = await slackReplyApi.getSnapshot();
+      applySnapshot(nextSnapshot, options);
+      if (options.showActivity) {
+        setRefreshMessage(nextSnapshot.connected ? "방금 확인했어요." : "연결 상태를 확인했어요.");
+      }
+    } catch {
+      if (options.showActivity) {
+        setRefreshMessage("새로고침에 실패했어요. 잠시 후 다시 시도해 주세요.");
+      }
+    } finally {
+      if (options.showActivity) {
+        setIsRefreshing(false);
+        refreshMessageTimerRef.current = window.setTimeout(() => {
+          setRefreshMessage(null);
+          refreshMessageTimerRef.current = null;
+        }, 2600);
+      }
+    }
   }, [applySnapshot]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshMessageTimerRef.current) {
+        window.clearTimeout(refreshMessageTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     void refreshSnapshot({ forceEmpty: true, syncDefaultTone: true });
@@ -270,9 +306,10 @@ export function App() {
         <ConnectionView
           errorMessage={snapshot.errorMessage}
           savedClientId={snapshot.slackClientId}
+          isRefreshing={isRefreshing}
           status={snapshot.connectionStatus}
           onRetry={() => {
-            void refreshSnapshot({ forceEmpty: true, forceShowInbox: true, syncDefaultTone: true });
+            void refreshSnapshot({ forceEmpty: true, forceShowInbox: true, showActivity: true, syncDefaultTone: true });
           }}
         />
       </AppShell>
@@ -344,11 +381,18 @@ export function App() {
       {view === "empty" && (
         <EmptyView
           status={statusText(enabledChannelCount)}
+          isRefreshing={isRefreshing}
           sentCount={snapshot.sent.length}
           onOpenSent={() => setView("sentList")}
-          onRefresh={() => void refreshSnapshot({ forceEmpty: true, forceShowInbox: true })}
+          onRefresh={() => void refreshSnapshot({ forceEmpty: true, forceShowInbox: true, showActivity: true })}
           onSettings={() => setView("settings")}
         />
+      )}
+      {refreshMessage && (
+        <div className={`refresh-toast ${isRefreshing ? "refreshing" : ""}`}>
+          <RefreshCw className={isRefreshing ? "spin" : ""} size={15} />
+          {refreshMessage}
+        </div>
       )}
     </AppShell>
   );
@@ -367,11 +411,13 @@ function AppShell({ children, width }: { children: React.ReactNode; width: "comp
 
 function ConnectionView({
   errorMessage,
+  isRefreshing,
   onRetry,
   savedClientId,
   status
 }: {
   errorMessage?: string;
+  isRefreshing: boolean;
   onRetry: () => void;
   savedClientId?: string;
   status: "connected" | "missing_token" | "error";
@@ -497,9 +543,9 @@ function ConnectionView({
           암호화 저장
         </button>
       </div>
-      <button className="refresh-button retry" onClick={onRetry}>
-        <RefreshCw size={16} />
-        다시 확인
+      <button className="refresh-button retry" disabled={isRefreshing} onClick={onRetry}>
+        <RefreshCw className={isRefreshing ? "spin" : ""} size={16} />
+        {isRefreshing ? "확인 중..." : "다시 확인"}
       </button>
     </section>
   );
@@ -1096,12 +1142,14 @@ function SettingsView({
 }
 
 function EmptyView({
+  isRefreshing,
   status,
   sentCount,
   onOpenSent,
   onRefresh,
   onSettings
 }: {
+  isRefreshing: boolean;
   status: string;
   sentCount: number;
   onOpenSent: () => void;
@@ -1127,12 +1175,12 @@ function EmptyView({
         </div>
         <h1>모두 답장했어요</h1>
         <p>지금 답장해야 할 메시지가 없어요.<br />새 메시지가 감지되면 여기에 표시됩니다.</p>
-        <button className="refresh-button" onClick={onRefresh}>
-          <RotateCcw size={16} />
-          지금 새로고침
+        <button className="refresh-button" disabled={isRefreshing} onClick={onRefresh}>
+          {isRefreshing ? <RefreshCw className="spin" size={16} /> : <RotateCcw size={16} />}
+          {isRefreshing ? "확인 중..." : "지금 새로고침"}
         </button>
       </section>
-      <StatusBar text={status} blinking />
+      <StatusBar text={isRefreshing ? "Slack 확인 중..." : status} blinking />
     </>
   );
 }

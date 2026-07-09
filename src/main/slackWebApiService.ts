@@ -79,14 +79,18 @@ const defaultSettings: SlackReplySettings = {
 };
 
 const conversationCacheTtlMs = 10 * 60 * 1000;
-const maxConversationPages = 3;
-const maxSearchConversationPages = 40;
+const searchConversationCacheTtlMs = 60 * 60 * 1000;
+const conversationPageLimit = "1000";
+const maxConversationPages = 1;
+const maxSearchConversationPages = 5;
 const maxSlackApiRetries = 2;
 const slackApiTimeoutMs = 15000;
 
 interface FetchConversationsOptions {
   maxPages?: number;
   refresh?: boolean;
+  retryOnRateLimit?: boolean;
+  tolerateRateLimit?: boolean;
 }
 
 interface SlackApiOptions {
@@ -96,6 +100,16 @@ interface SlackApiOptions {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+class SlackRateLimitError extends Error {
+  constructor(
+    method: string,
+    readonly retryAfterMs: number
+  ) {
+    super(`Slack API ${method} 요청이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.`);
+    this.name = "SlackRateLimitError";
+  }
 }
 
 function initials(name: string): string {
@@ -179,6 +193,8 @@ export class SlackWebApiReplyService {
   private users = new Map<string, SlackUser>();
   private conversations = new Map<string, SlackConversation>();
   private conversationsLoadedAt = 0;
+  private searchConversationsLoadedAt = 0;
+  private searchConversationsPromise: Promise<SlackConversation[]> | null = null;
 
   constructor(private readonly tokenStore: TokenStore, private readonly aiDraftService: AiDraftService) {}
 
@@ -292,15 +308,17 @@ export class SlackWebApiReplyService {
     }
 
     await this.ensureIdentity();
-    const conversations = await this.fetchConversations({
-      maxPages: maxSearchConversationPages,
-      refresh: true
-    });
+    const cachedMatches = this.findAvailableChannels(normalizedQuery);
+    const hasFreshSearchCache = Date.now() - this.searchConversationsLoadedAt < searchConversationCacheTtlMs;
+    if (cachedMatches.length > 0 && hasFreshSearchCache) {
+      return cachedMatches;
+    }
+
+    const conversations = await this.fetchSearchConversations();
     this.ensureSettingsChannels(conversations);
 
-    return this.settings.availableChannels
-      .filter((channel) => channel.label.toLowerCase().includes(normalizedQuery))
-      .slice(0, 50);
+    const refreshedMatches = this.findAvailableChannels(normalizedQuery);
+    return refreshedMatches.length > 0 ? refreshedMatches : cachedMatches;
   }
 
   private disconnected(
@@ -342,15 +360,24 @@ export class SlackWebApiReplyService {
     let pageCount = 0;
 
     do {
-      const response = await this.api<{ channels: SlackConversation[]; response_metadata?: { next_cursor?: string } }>(
-        "conversations.list",
-        {
-          cursor,
-          exclude_archived: "true",
-          limit: "200",
-          types: "public_channel,private_channel,im"
+      let response: { channels: SlackConversation[]; response_metadata?: { next_cursor?: string } };
+      try {
+        response = await this.api<{ channels: SlackConversation[]; response_metadata?: { next_cursor?: string } }>(
+          "conversations.list",
+          {
+            cursor,
+            exclude_archived: "true",
+            limit: conversationPageLimit,
+            types: "public_channel,private_channel,im"
+          },
+          { retryOnRateLimit: options.retryOnRateLimit ?? true }
+        );
+      } catch (error) {
+        if (options.tolerateRateLimit && error instanceof SlackRateLimitError) {
+          break;
         }
-      );
+        throw error;
+      }
 
       conversations.push(...response.channels.filter(isWatchableConversation));
       cursor = response.response_metadata?.next_cursor || undefined;
@@ -371,6 +398,38 @@ export class SlackWebApiReplyService {
     });
     this.conversationsLoadedAt = Date.now();
     return sortConversationsByRecentActivity(Array.from(this.conversations.values()));
+  }
+
+  private async fetchSearchConversations(): Promise<SlackConversation[]> {
+    if (Date.now() - this.searchConversationsLoadedAt < searchConversationCacheTtlMs && this.conversations.size > 0) {
+      return Array.from(this.conversations.values());
+    }
+
+    if (this.searchConversationsPromise) {
+      return this.searchConversationsPromise;
+    }
+
+    this.searchConversationsPromise = this.fetchConversations({
+      maxPages: maxSearchConversationPages,
+      refresh: true,
+      retryOnRateLimit: false,
+      tolerateRateLimit: true
+    })
+      .then((conversations) => {
+        this.searchConversationsLoadedAt = Date.now();
+        return conversations;
+      })
+      .finally(() => {
+        this.searchConversationsPromise = null;
+      });
+
+    return this.searchConversationsPromise;
+  }
+
+  private findAvailableChannels(normalizedQuery: string): SlackChannelOption[] {
+    return this.settings.availableChannels
+      .filter((channel) => channel.label.toLowerCase().includes(normalizedQuery))
+      .slice(0, 50);
   }
 
   private ensureSettingsChannels(conversations: SlackConversation[]): void {
@@ -641,7 +700,7 @@ export class SlackWebApiReplyService {
         return this.api<T>(method, params, { ...options, attempt: attempt + 1 });
       }
 
-      throw new Error(`Slack API ${method} 요청이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.`);
+      throw new SlackRateLimitError(method, retryAfterMs);
     }
 
     if (!response.ok) {

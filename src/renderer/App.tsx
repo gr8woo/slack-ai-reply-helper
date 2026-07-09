@@ -937,9 +937,7 @@ function SettingsView({
   function toggleChannel(id: string) {
     onSettings({
       ...settings,
-      channels: settings.channels.map((channel) =>
-        channel.id === id ? { ...channel, enabled: !channel.enabled } : channel
-      )
+      channels: settings.channels.filter((channel) => channel.id !== id)
     });
   }
 

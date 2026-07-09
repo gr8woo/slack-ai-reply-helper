@@ -22,7 +22,7 @@ npm run dev
 
 앱 첫 화면에서 두 가지 방식 중 하나로 연결할 수 있습니다.
 
-설치된 Slack 데스크톱 앱의 내부 토큰이나 쿠키를 추출해서 사용하지 않습니다. 인증은 Slack 공식 OAuth 또는 사용자가 직접 제공한 토큰만 사용하고, 저장된 토큰은 Electron `safeStorage`로 로컬 암호화합니다.
+기본 인증 경로는 Slack 공식 OAuth입니다. 개인 로컬 머신에서만 쓰는 고급 fallback으로, 이미 설치되어 로그인된 Slack Desktop 세션을 `slack-browse` 로컬 설정에서 가져오거나 기존 extractor로 추출해 사용할 수 있습니다. 어떤 방식이든 앱에 저장되는 토큰과 쿠키는 Electron `safeStorage`로 로컬 암호화합니다.
 
 ### 1. Slack OAuth 연결
 
@@ -63,6 +63,16 @@ Slack 앱 설정 순서:
 ### 2. 토큰 직접 저장
 
 이미 발급된 `xoxp-...` 또는 `xoxb-...` 토큰이 있으면 첫 화면의 token 입력칸에 붙여넣고 `암호화 저장`을 누릅니다.
+
+### 3. 설치된 Slack 앱에서 가져오기
+
+첫 화면의 `설치된 Slack 앱에서 가져오기`를 누르면 아래 순서로 로컬 세션을 가져옵니다.
+
+1. `~/.config/slack-browse/slack-config.json`에 저장된 `slack-browse` 토큰 설정을 읽습니다.
+2. 설정이 없으면 `SLACK_BROWSE_EXTRACTOR_PATH` 또는 `~/projects/service-engineering/.agents/skills/slack-browse/tools/extract_slack_token.py`를 실행해 Slack Desktop 세션을 추출합니다.
+3. Slack Desktop의 `xoxc` 토큰과 `d` 쿠키를 앱 저장소에 암호화 저장합니다.
+
+이 경로는 개인 로컬 사용 편의를 위한 fallback입니다. 팀 배포나 장기 운영용 인증 방식은 OAuth PKCE를 우선 사용하세요.
 
 ### 개발용 환경 변수
 

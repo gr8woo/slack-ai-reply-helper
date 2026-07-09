@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
 import { LocalCliDraftService } from "./aiDraftService";
 import { loadLocalEnv } from "./env";
+import { SlackDesktopAuthService } from "./slackDesktopAuthService";
 import { SlackOAuthService } from "./slackOAuthService";
 import { SlackWebApiReplyService } from "./slackWebApiService";
 import { TokenStore } from "./tokenStore";
@@ -9,6 +10,7 @@ import { TokenStore } from "./tokenStore";
 loadLocalEnv();
 let service: SlackWebApiReplyService;
 let oauthService: SlackOAuthService;
+let desktopAuthService: SlackDesktopAuthService;
 
 app.setName("Slack 답장 도우미");
 nativeTheme.themeSource = "light";
@@ -46,6 +48,7 @@ app.whenReady().then(() => {
   const tokenStore = new TokenStore();
   service = new SlackWebApiReplyService(tokenStore, new LocalCliDraftService());
   oauthService = new SlackOAuthService(tokenStore);
+  desktopAuthService = new SlackDesktopAuthService(tokenStore);
 
   ipcMain.handle("slackReply:getSnapshot", () => service.getSnapshot());
   ipcMain.handle("slackReply:generateDraft", (_event, request) => service.generateDraft(request));
@@ -55,6 +58,7 @@ app.whenReady().then(() => {
   ipcMain.handle("slackReply:completeUpdate", () => service.completeUpdate());
   ipcMain.handle("slackReply:startOAuth", (_event, request) => oauthService.startOAuth(request));
   ipcMain.handle("slackReply:saveToken", (_event, token: string) => oauthService.saveToken(token));
+  ipcMain.handle("slackReply:importDesktopAuth", () => desktopAuthService.importFromSlackDesktop());
   ipcMain.handle("slackReply:clearAuth", () => oauthService.clearAuth());
 
   createMainWindow();

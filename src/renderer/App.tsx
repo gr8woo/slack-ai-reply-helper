@@ -306,7 +306,7 @@ function ConnectionView({
 }) {
   const [clientId, setClientId] = useState(savedClientId ?? "");
   const [token, setToken] = useState("");
-  const [busy, setBusy] = useState<"oauth" | "token" | null>(null);
+  const [busy, setBusy] = useState<"oauth" | "token" | "desktop" | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -350,6 +350,23 @@ function ConnectionView({
     }
   }
 
+  async function importDesktopAuth() {
+    setBusy("desktop");
+    setLocalError(null);
+    try {
+      const result = await slackReplyApi.importDesktopAuth();
+      if (!result.ok) {
+        setLocalError(result.errorMessage ?? "Slack 앱 세션 가져오기에 실패했습니다.");
+        return;
+      }
+      onRetry();
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Slack 앱 세션 가져오기에 실패했습니다.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="body connection-body">
       <div className="connection-icon">S</div>
@@ -383,6 +400,15 @@ function ConnectionView({
         <button className="primary-action compact" disabled={busy === "oauth"} onClick={() => void connectOAuth()}>
           {busy === "oauth" ? "Slack 승인 대기 중..." : "Slack OAuth로 연결"}
         </button>
+      </div>
+      <div className="connection-divider">또는</div>
+      <div className="connection-form">
+        <button className="secondary-action wide" disabled={busy === "desktop"} onClick={() => void importDesktopAuth()}>
+          {busy === "desktop" ? "Slack 앱 세션 확인 중..." : "설치된 Slack 앱에서 가져오기"}
+        </button>
+        <p className="connection-note small">
+          로컬 `slack-browse` 설정을 가져오거나, 가능한 경우 Slack Desktop에서 세션을 추출해 암호화 저장합니다.
+        </p>
       </div>
       <div className="connection-divider">또는</div>
       <div className="connection-form">

@@ -61,6 +61,9 @@ const fallbackApi: SlackReplyApi = {
   async saveToken() {
     return { ok: false, errorMessage: "Electron 데스크톱 앱에서만 토큰 저장을 사용할 수 있습니다." };
   },
+  async importDesktopAuth() {
+    return { ok: false, errorMessage: "Electron 데스크톱 앱에서만 Slack 앱 세션 가져오기를 사용할 수 있습니다." };
+  },
   async clearAuth() {
     return { ok: true };
   }

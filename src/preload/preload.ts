@@ -23,6 +23,7 @@ const api: SlackReplyApi = {
   startOAuth: (request: SlackOAuthStartRequest) =>
     ipcRenderer.invoke("slackReply:startOAuth", request) as Promise<SlackAuthResult>,
   saveToken: (token: string) => ipcRenderer.invoke("slackReply:saveToken", token) as Promise<SlackAuthResult>,
+  importDesktopAuth: () => ipcRenderer.invoke("slackReply:importDesktopAuth") as Promise<SlackAuthResult>,
   clearAuth: () => ipcRenderer.invoke("slackReply:clearAuth") as Promise<SlackAuthResult>
 };
 

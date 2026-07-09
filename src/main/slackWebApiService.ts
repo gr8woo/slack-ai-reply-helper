@@ -422,8 +422,8 @@ export class SlackWebApiReplyService {
   }
 
   private async api<T extends object>(method: string, params: Record<string, string | undefined>): Promise<T> {
-    const token = this.getToken();
-    if (!token) {
+    const credentials = this.tokenStore.getAuthCredentials();
+    if (!credentials?.token) {
       throw new Error("Slack token is missing.");
     }
 
@@ -434,12 +434,22 @@ export class SlackWebApiReplyService {
       }
     });
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded"
+    };
+
+    if (credentials.token.startsWith("xoxc-")) {
+      form.set("token", credentials.token);
+      if (credentials.dCookie) {
+        headers.Cookie = `d=${credentials.dCookie}`;
+      }
+    } else {
+      headers.Authorization = `Bearer ${credentials.token}`;
+    }
+
     const response = await fetch(`https://slack.com/api/${method}`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers,
       body: form
     });
 

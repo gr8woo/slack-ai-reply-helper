@@ -793,6 +793,11 @@ button:disabled {
   line-height: 1.45;
 }
 
+.connection-note.small {
+  margin: -2px 0 0;
+  text-align: left;
+}
+
 .connection-steps ol {
   margin: 0;
   padding-left: 18px;

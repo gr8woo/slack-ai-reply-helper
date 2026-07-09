@@ -86,6 +86,7 @@ export interface SlackReplyApi {
   completeUpdate(): Promise<SlackReplySettings>;
   startOAuth(request: SlackOAuthStartRequest): Promise<SlackAuthResult>;
   saveToken(token: string): Promise<SlackAuthResult>;
+  importDesktopAuth(): Promise<SlackAuthResult>;
   clearAuth(): Promise<SlackAuthResult>;
 }
 
@@ -96,6 +97,7 @@ export interface SlackOAuthStartRequest {
 
 export interface SlackAuthResult {
   ok: boolean;
+  message?: string;
   errorMessage?: string;
 }
 

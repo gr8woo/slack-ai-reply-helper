@@ -1,4 +1,5 @@
 import type {
+  AiIntegrationStatus,
   PendingSlackMessage,
   Priority,
   ReasonTag,
@@ -51,6 +52,7 @@ interface SlackUser {
 
 const defaultSettings: SlackReplySettings = {
   channels: [],
+  availableChannels: [],
   rules: [
     { id: "mention", label: "나를 @멘션 한 메시지", enabled: true },
     { id: "dm", label: "나에게 온 DM", enabled: true },
@@ -60,7 +62,10 @@ const defaultSettings: SlackReplySettings = {
   defaultTone: "default",
   quietHours: "22:00 - 08:00",
   version: "v0.1.0",
-  updateStatus: "done"
+  updateStatus: "done",
+  aiIntegration: {
+    providerPreference: "auto"
+  }
 };
 
 function initials(name: string): string {
@@ -153,7 +158,10 @@ export class SlackWebApiReplyService {
     }
 
     const threadMessages = await this.fetchThreadMessages(message);
-    return this.aiDraftService.generateReplyDraft({ message, tone, threadMessages, variantIndex });
+    return this.aiDraftService.generateReplyDraft(
+      { message, tone, threadMessages, variantIndex },
+      this.settings.aiIntegration.providerPreference
+    );
   }
 
   async sendReply({ messageId, body }: SendReplyRequest): Promise<SentSlackReply> {
@@ -215,6 +223,10 @@ export class SlackWebApiReplyService {
     return this.settings;
   }
 
+  getAiIntegrationStatus(): Promise<AiIntegrationStatus> {
+    return this.aiDraftService.getIntegrationStatus(this.settings.aiIntegration.providerPreference);
+  }
+
   private disconnected(
     connectionStatus: "missing_token" | "error",
     errorMessage: string
@@ -256,9 +268,10 @@ export class SlackWebApiReplyService {
   }
 
   private ensureSettingsChannels(conversations: SlackConversation[]): void {
-    if (this.settings.channels.length > 0) {
-      return;
-    }
+    const availableChannels = conversations.map((conversation) => ({
+      id: conversation.id,
+      label: this.conversationLabel(conversation)
+    }));
 
     const preferredIds = (process.env.SLACK_CHANNEL_IDS ?? "")
       .split(",")
@@ -268,14 +281,25 @@ export class SlackWebApiReplyService {
       ? conversations.filter((conversation) => preferredIds.includes(conversation.id))
       : conversations.filter((conversation) => conversation.is_im || conversation.is_private).slice(0, 12);
     const selected = preferred.length > 0 ? preferred : conversations.slice(0, 12);
-
-    this.settings = {
-      ...this.settings,
-      channels: selected.map((conversation) => ({
+    const knownChannels = new Map(availableChannels.map((channel) => [channel.id, channel]));
+    const existingChannels = this.settings.channels
+      .filter((channel) => knownChannels.has(channel.id))
+      .map((channel) => ({
+        ...channel,
+        label: knownChannels.get(channel.id)?.label ?? channel.label
+      }));
+    const selectedChannels = existingChannels.length > 0
+      ? existingChannels
+      : selected.map((conversation) => ({
         id: conversation.id,
         label: this.conversationLabel(conversation),
         enabled: true
-      }))
+      }));
+
+    this.settings = {
+      ...this.settings,
+      availableChannels,
+      channels: selectedChannels
     };
   }
 

@@ -1,4 +1,12 @@
-import type { ReplyDraftRequest, SendReplyRequest, SentSlackReply, SlackReplyApi, SlackReplySettings, SlackReplySnapshot } from "../shared/slack";
+import type {
+  AiIntegrationStatus,
+  ReplyDraftRequest,
+  SendReplyRequest,
+  SentSlackReply,
+  SlackReplyApi,
+  SlackReplySettings,
+  SlackReplySnapshot
+} from "../shared/slack";
 
 declare global {
   interface Window {
@@ -8,6 +16,7 @@ declare global {
 
 const fallbackSettings: SlackReplySettings = {
   channels: [],
+  availableChannels: [],
   rules: [
     { id: "mention", label: "나를 @멘션 한 메시지", enabled: true },
     { id: "dm", label: "나에게 온 DM", enabled: true },
@@ -17,7 +26,19 @@ const fallbackSettings: SlackReplySettings = {
   defaultTone: "default",
   quietHours: "22:00 - 08:00",
   version: "v0.1.0",
-  updateStatus: "done"
+  updateStatus: "done",
+  aiIntegration: {
+    providerPreference: "auto"
+  }
+};
+
+const fallbackAiStatus: AiIntegrationStatus = {
+  providerPreference: "auto",
+  activeProvider: null,
+  claudeAvailable: false,
+  codexAvailable: false,
+  checkedAtLabel: "미확인",
+  errorMessage: "Electron 데스크톱 앱에서만 AI 연동 상태를 확인할 수 있습니다."
 };
 
 let fallbackSnapshot: SlackReplySnapshot = {
@@ -54,6 +75,12 @@ const fallbackApi: SlackReplyApi = {
     const settings = { ...fallbackSnapshot.settings, version: "v1.5.0", updateStatus: "done" as const };
     fallbackSnapshot = { ...fallbackSnapshot, settings };
     return settings;
+  },
+  async getAiIntegrationStatus() {
+    return fallbackAiStatus;
+  },
+  async testAiIntegration() {
+    return fallbackAiStatus;
   },
   async startOAuth() {
     return { ok: false, errorMessage: "Electron 데스크톱 앱에서만 OAuth 연결을 사용할 수 있습니다." };

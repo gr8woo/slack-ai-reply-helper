@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
-import type { PendingSlackMessage, ReplyTone } from "../shared/slack";
+import type { AiIntegrationStatus, AiProvider, AiProviderPreference, PendingSlackMessage, ReplyTone } from "../shared/slack";
 
 export interface DraftContext {
   message: PendingSlackMessage;
@@ -12,18 +12,26 @@ export interface DraftContext {
 }
 
 export interface AiDraftService {
-  generateReplyDraft(context: DraftContext): Promise<string>;
+  generateReplyDraft(context: DraftContext, providerPreference?: AiProviderPreference): Promise<string>;
+  getIntegrationStatus(providerPreference: AiProviderPreference): Promise<AiIntegrationStatus>;
 }
 
 export class LocalCliDraftService implements AiDraftService {
-  async generateReplyDraft(context: DraftContext): Promise<string> {
+  async generateReplyDraft(context: DraftContext, providerPreference: AiProviderPreference = "auto"): Promise<string> {
     const prompt = buildDraftPrompt(context);
-    const claudePath = await resolveBinary("claude");
+    const status = await this.getIntegrationStatus(providerPreference);
 
-    if (claudePath) {
+    if (status.activeProvider === "claude") {
       try {
+        const claudePath = await resolveBinary("claude");
+        if (!claudePath) {
+          throw new Error("Claude Code CLI를 찾지 못했습니다.");
+        }
         return await runClaude(claudePath, prompt);
       } catch (error) {
+        if (providerPreference === "claude") {
+          throw error;
+        }
         const codexPath = await resolveBinary("codex");
         if (!codexPath) {
           throw error;
@@ -32,13 +40,46 @@ export class LocalCliDraftService implements AiDraftService {
       }
     }
 
-    const codexPath = await resolveBinary("codex");
-    if (codexPath) {
+    if (status.activeProvider === "codex") {
+      const codexPath = await resolveBinary("codex");
+      if (!codexPath) {
+        throw new Error("Codex CLI를 찾지 못했습니다.");
+      }
       return runCodex(codexPath, prompt);
     }
 
     throw new Error("Claude Code CLI와 Codex CLI를 찾지 못했습니다.");
   }
+
+  async getIntegrationStatus(providerPreference: AiProviderPreference): Promise<AiIntegrationStatus> {
+    const [claudePath, codexPath] = await Promise.all([resolveBinary("claude"), resolveBinary("codex")]);
+    const activeProvider = chooseProvider(providerPreference, Boolean(claudePath), Boolean(codexPath));
+    return {
+      providerPreference,
+      activeProvider,
+      claudeAvailable: Boolean(claudePath),
+      codexAvailable: Boolean(codexPath),
+      checkedAtLabel: "방금 전",
+      errorMessage: activeProvider ? undefined : "Claude Code CLI와 Codex CLI를 찾지 못했습니다."
+    };
+  }
+}
+
+function chooseProvider(
+  providerPreference: AiProviderPreference,
+  claudeAvailable: boolean,
+  codexAvailable: boolean
+): AiProvider | null {
+  if (providerPreference === "claude") {
+    return claudeAvailable ? "claude" : null;
+  }
+  if (providerPreference === "codex") {
+    return codexAvailable ? "codex" : null;
+  }
+  if (claudeAvailable) {
+    return "claude";
+  }
+  return codexAvailable ? "codex" : null;
 }
 
 const systemPrompt =

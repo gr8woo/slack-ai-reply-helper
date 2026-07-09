@@ -14,9 +14,11 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { priorityLabels, reasonLabels, toneLabels } from "../shared/slack";
 import type {
+  AiIntegrationStatus,
   PendingSlackMessage,
   ReasonTag,
   ReplyTone,
+  SlackChannelOption,
   SentSlackReply,
   SlackReplySettings,
   SlackReplySnapshot
@@ -678,6 +680,17 @@ function SentView({
   );
 }
 
+function aiProviderLabel(provider: "claude" | "codex"): string {
+  return provider === "claude" ? "Claude Code 사용 중" : "Codex 사용 중";
+}
+
+function aiPreferenceLabel(provider: "auto" | "claude" | "codex"): string {
+  if (provider === "auto") {
+    return "자동";
+  }
+  return provider === "claude" ? "Claude" : "Codex";
+}
+
 function SettingsView({
   settings,
   onBack,
@@ -689,6 +702,28 @@ function SettingsView({
   onCompleteUpdate: () => void;
   onSettings: (settings: SlackReplySettings) => void;
 }) {
+  const [showChannelPicker, setShowChannelPicker] = useState(false);
+  const [channelQuery, setChannelQuery] = useState("");
+  const [aiStatus, setAiStatus] = useState<AiIntegrationStatus | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void slackReplyApi.getAiIntegrationStatus().then((status) => {
+      if (alive) {
+        setAiStatus(status);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [settings.aiIntegration.providerPreference]);
+
+  const selectedChannelIds = new Set(settings.channels.map((channel) => channel.id));
+  const channelCandidates = settings.availableChannels
+    .filter((channel) => !selectedChannelIds.has(channel.id))
+    .filter((channel) => channel.label.toLowerCase().includes(channelQuery.trim().toLowerCase()));
+
   function toggleChannel(id: string) {
     onSettings({
       ...settings,
@@ -696,6 +731,24 @@ function SettingsView({
         channel.id === id ? { ...channel, enabled: !channel.enabled } : channel
       )
     });
+  }
+
+  function addChannel(channel: SlackChannelOption) {
+    onSettings({
+      ...settings,
+      channels: [...settings.channels, { ...channel, enabled: true }]
+    });
+    setChannelQuery("");
+    setShowChannelPicker(false);
+  }
+
+  async function testAiIntegration() {
+    setAiBusy(true);
+    try {
+      setAiStatus(await slackReplyApi.testAiIntegration());
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   function toggleRule(id: string) {
@@ -726,10 +779,29 @@ function SettingsView({
               </button>
             </div>
           ))}
-          <button className="add-channel">
+          <button className="add-channel" onClick={() => setShowChannelPicker((open) => !open)}>
             <Plus size={14} />
-            채널 추가
+            {showChannelPicker ? "채널 추가 닫기" : "채널 추가"}
           </button>
+          {showChannelPicker && (
+            <div className="channel-picker">
+              <input
+                aria-label="채널 검색"
+                placeholder="채널명 검색"
+                value={channelQuery}
+                onChange={(event) => setChannelQuery(event.target.value)}
+              />
+              <div className="channel-picker-list">
+                {channelCandidates.slice(0, 24).map((channel) => (
+                  <button key={channel.id} onClick={() => addChannel(channel)}>
+                    <span>{channel.label}</span>
+                    <Plus size={14} />
+                  </button>
+                ))}
+                {channelCandidates.length === 0 && <div className="picker-empty">추가할 채널이 없어요.</div>}
+              </div>
+            </div>
+          )}
         </div>
       </SettingsSection>
 
@@ -770,6 +842,39 @@ function SettingsView({
           ))}
         </div>
       </div>
+
+      <SettingsSection description="로컬 CLI를 사용해 Slack 답장 초안을 생성합니다." title="AI 연동">
+        <div className="ai-card">
+          <div className="ai-status-row">
+            <div>
+              <strong>{aiStatus?.activeProvider ? aiProviderLabel(aiStatus.activeProvider) : "사용 가능한 AI 없음"}</strong>
+              <span>
+                Claude Code {aiStatus?.claudeAvailable ? "연결됨" : "없음"} · Codex {aiStatus?.codexAvailable ? "연결됨" : "없음"}
+              </span>
+            </div>
+            <button className="secondary-action small" disabled={aiBusy} onClick={() => void testAiIntegration()}>
+              {aiBusy ? "확인 중..." : "연동 테스트"}
+            </button>
+          </div>
+          <div className="mini-segments ai-provider">
+            {(["auto", "claude", "codex"] as const).map((provider) => (
+              <button
+                className={settings.aiIntegration.providerPreference === provider ? "active" : ""}
+                key={provider}
+                onClick={() =>
+                  onSettings({
+                    ...settings,
+                    aiIntegration: { providerPreference: provider }
+                  })
+                }
+              >
+                {aiPreferenceLabel(provider)}
+              </button>
+            ))}
+          </div>
+          {aiStatus?.errorMessage && <div className="ai-error">{aiStatus.errorMessage}</div>}
+        </div>
+      </SettingsSection>
 
       <div className="inline-setting">
         <div>

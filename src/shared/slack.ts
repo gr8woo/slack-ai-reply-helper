@@ -4,6 +4,32 @@ export type ReasonTag = "mention" | "dm" | "question" | "urgent";
 
 export type Priority = "urgent" | "normal" | "low";
 
+export type AiProvider = "claude" | "codex";
+
+export type AiProviderPreference = "auto" | AiProvider;
+
+export interface SlackChannelOption {
+  id: string;
+  label: string;
+}
+
+export interface SlackChannelSetting extends SlackChannelOption {
+  enabled: boolean;
+}
+
+export interface AiIntegrationSettings {
+  providerPreference: AiProviderPreference;
+}
+
+export interface AiIntegrationStatus {
+  providerPreference: AiProviderPreference;
+  activeProvider: AiProvider | null;
+  claudeAvailable: boolean;
+  codexAvailable: boolean;
+  checkedAtLabel: string;
+  errorMessage?: string;
+}
+
 export interface SlackSender {
   name: string;
   initials: string;
@@ -39,11 +65,8 @@ export interface SentSlackReply {
 }
 
 export interface SlackReplySettings {
-  channels: Array<{
-    id: string;
-    label: string;
-    enabled: boolean;
-  }>;
+  channels: SlackChannelSetting[];
+  availableChannels: SlackChannelOption[];
   rules: Array<{
     id: string;
     label: string;
@@ -54,6 +77,7 @@ export interface SlackReplySettings {
   quietHours: string;
   version: string;
   updateStatus: "available" | "updating" | "done";
+  aiIntegration: AiIntegrationSettings;
 }
 
 export interface ReplyDraftRequest {
@@ -84,6 +108,8 @@ export interface SlackReplyApi {
   undoSend(replyId: string): Promise<SlackReplySnapshot>;
   updateSettings(settings: SlackReplySettings): Promise<SlackReplySettings>;
   completeUpdate(): Promise<SlackReplySettings>;
+  getAiIntegrationStatus(): Promise<AiIntegrationStatus>;
+  testAiIntegration(): Promise<AiIntegrationStatus>;
   startOAuth(request: SlackOAuthStartRequest): Promise<SlackAuthResult>;
   saveToken(token: string): Promise<SlackAuthResult>;
   importDesktopAuth(): Promise<SlackAuthResult>;

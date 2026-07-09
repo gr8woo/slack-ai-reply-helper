@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import path from "node:path";
 import { LocalCliDraftService } from "./aiDraftService";
 import { loadLocalEnv } from "./env";
@@ -62,6 +62,7 @@ app.whenReady().then(() => {
   ipcMain.handle("slackReply:saveToken", (_event, token: string) => oauthService.saveToken(token));
   ipcMain.handle("slackReply:importDesktopAuth", () => desktopAuthService.importFromSlackDesktop());
   ipcMain.handle("slackReply:clearAuth", () => oauthService.clearAuth());
+  ipcMain.handle("slackReply:openExternal", (_event, url: string) => shell.openExternal(url));
 
   createMainWindow();
 

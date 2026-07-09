@@ -886,6 +886,12 @@ button:disabled {
   font-size: 13px;
 }
 
+.recap-card header span {
+  margin-left: auto;
+  color: var(--tertiary);
+  font-size: 12px;
+}
+
 .recap-card p {
   margin: 0;
   padding: 14px;
@@ -950,6 +956,20 @@ button:disabled {
 
 .remaining strong {
   color: var(--brand-600);
+}
+
+.sent-list-body {
+  padding: 18px;
+}
+
+.sent-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sent-list-card {
+  width: 100%;
+  margin: 0;
 }
 
 .settings-body {
@@ -1141,9 +1161,29 @@ button:disabled {
   font-weight: 700;
 }
 
+.keyword svg {
+  color: var(--tertiary);
+}
+
 .keyword.add {
   border-style: dashed;
   color: var(--brand-600);
+}
+
+.keyword-input {
+  width: 112px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  outline: none;
+  padding: 0 11px;
+  color: var(--midnight);
+  font-size: 13px;
+}
+
+.keyword-input:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-50);
 }
 
 .inline-setting {
@@ -1308,6 +1348,10 @@ button:disabled {
   color: var(--secondary);
   font-size: 13px;
   font-weight: 700;
+}
+
+.settings-links .danger-link {
+  color: var(--brand-700);
 }
 
 .empty-body {

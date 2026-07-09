@@ -25,7 +25,7 @@ import type {
 } from "../shared/slack";
 import { slackReplyApi } from "./api";
 
-type View = "inbox" | "reply" | "sent" | "settings" | "empty";
+type View = "inbox" | "reply" | "sent" | "sentList" | "settings" | "empty";
 type InboxFilter = "all" | "mention" | "dm" | "question";
 
 const filterLabels: Record<InboxFilter, string> = {
@@ -55,6 +55,11 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [lastReply, setLastReply] = useState<SentSlackReply | null>(null);
   const [undoSeconds, setUndoSeconds] = useState(5);
+  const viewRef = useRef<View>("inbox");
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const applySnapshot = useCallback((
     nextSnapshot: SlackReplySnapshot,
@@ -65,6 +70,9 @@ export function App() {
       setTone(nextSnapshot.settings.defaultTone);
     }
     setSelectedId((currentId) => {
+      if (viewRef.current === "reply" && currentId) {
+        return currentId;
+      }
       if (currentId && nextSnapshot.pending.some((message) => message.id === currentId)) {
         return currentId;
       }
@@ -94,11 +102,13 @@ export function App() {
 
   const pending = snapshot?.pending ?? [];
   const settings = snapshot?.settings;
-  const selectedMessage = pending.find((message) => message.id === selectedId) ?? pending[0] ?? null;
+  const selectedMessage = view === "reply"
+    ? pending.find((message) => message.id === selectedId) ?? null
+    : pending.find((message) => message.id === selectedId) ?? pending[0] ?? null;
   const enabledChannelCount = settings?.channels.filter((channel) => channel.enabled).length ?? 0;
 
   useEffect(() => {
-    if (!snapshot?.connected) {
+    if (!snapshot?.connected || view === "reply") {
       return;
     }
 
@@ -107,7 +117,7 @@ export function App() {
     }, slackRefreshIntervalMs);
 
     return () => window.clearInterval(timer);
-  }, [refreshSnapshot, snapshot?.connected]);
+  }, [refreshSnapshot, snapshot?.connected, view]);
 
   const filteredMessages = useMemo(() => {
     if (filter === "all") {
@@ -205,6 +215,18 @@ export function App() {
     setView("reply");
   }
 
+  async function clearAuth() {
+    if (!window.confirm("Slack 연결을 해제하고 저장된 토큰을 삭제할까요?")) {
+      return;
+    }
+
+    await slackReplyApi.clearAuth();
+    setLastReply(null);
+    setToast(null);
+    await refreshSnapshot({ forceEmpty: true, forceShowInbox: true, syncDefaultTone: true });
+    setView("inbox");
+  }
+
   function goNext() {
     const next = snapshot?.pending[0] ?? null;
     if (!next) {
@@ -268,6 +290,7 @@ export function App() {
           status={statusText(enabledChannelCount)}
           onFilter={setFilter}
           onOpenReply={openReply}
+          onOpenSent={() => setView("sentList")}
           onOpenSettings={() => setView("settings")}
         />
       )}
@@ -287,6 +310,7 @@ export function App() {
           onRegenerate={() => setVariantIndex((index) => index + 1)}
           onSend={() => void sendReply()}
           onHold={() => setView("inbox")}
+          onUndoToast={() => void undoSend()}
           onTone={setTone}
         />
       )}
@@ -299,10 +323,20 @@ export function App() {
           onUndo={() => void undoSend()}
         />
       )}
+      {view === "sentList" && (
+        <SentListView
+          pendingCount={pending.length}
+          replies={snapshot.sent}
+          status={statusText(enabledChannelCount)}
+          onBack={() => setView(pending.length > 0 ? "inbox" : "empty")}
+          onOpenSettings={() => setView("settings")}
+        />
+      )}
       {view === "settings" && (
         <SettingsView
           settings={settings}
           onBack={() => setView(pending.length > 0 ? "inbox" : "empty")}
+          onClearAuth={() => void clearAuth()}
           onCompleteUpdate={() => void completeUpdate()}
           onSettings={(nextSettings) => void updateSettings(nextSettings)}
         />
@@ -310,6 +344,8 @@ export function App() {
       {view === "empty" && (
         <EmptyView
           status={statusText(enabledChannelCount)}
+          sentCount={snapshot.sent.length}
+          onOpenSent={() => setView("sentList")}
           onRefresh={() => void refreshSnapshot({ forceEmpty: true, forceShowInbox: true })}
           onSettings={() => setView("settings")}
         />
@@ -477,6 +513,7 @@ function InboxView({
   status,
   onFilter,
   onOpenReply,
+  onOpenSent,
   onOpenSettings
 }: {
   filter: InboxFilter;
@@ -486,6 +523,7 @@ function InboxView({
   status: string;
   onFilter: (filter: InboxFilter) => void;
   onOpenReply: (message: PendingSlackMessage) => void;
+  onOpenSent: () => void;
   onOpenSettings: () => void;
 }) {
   return (
@@ -493,7 +531,7 @@ function InboxView({
       <section className="body inbox-body">
         <div className="tabs-row">
           <button className="tab active">대기중 <span>{pendingCount}</span></button>
-          <button className="tab">전송됨 <span className="muted-count">{sentCount}</span></button>
+          <button className="tab" onClick={onOpenSent}>전송됨 <span className="muted-count">{sentCount}</span></button>
           <button className="icon-button" aria-label="설정" onClick={onOpenSettings}>
             <Settings size={16} />
           </button>
@@ -558,6 +596,7 @@ function ReplyView({
   onHold,
   onRegenerate,
   onSend,
+  onUndoToast,
   onTone
 }: {
   draft: string;
@@ -574,6 +613,7 @@ function ReplyView({
   onHold: () => void;
   onRegenerate: () => void;
   onSend: () => void;
+  onUndoToast: () => void;
   onTone: (tone: ReplyTone) => void;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -660,9 +700,51 @@ function ReplyView({
         <div className="toast">
           <Check size={15} />
           {toast}
-          <button>실행 취소</button>
+          <button onClick={onUndoToast}>실행 취소</button>
         </div>
       )}
+      <StatusBar text={status} />
+    </>
+  );
+}
+
+function SentListView({
+  pendingCount,
+  replies,
+  status,
+  onBack,
+  onOpenSettings
+}: {
+  pendingCount: number;
+  replies: SentSlackReply[];
+  status: string;
+  onBack: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <>
+      <section className="body sent-list-body">
+        <div className="tabs-row">
+          <button className="tab" onClick={onBack}>대기중 <span className="muted-count">{pendingCount}</span></button>
+          <button className="tab active">전송됨 <span>{replies.length}</span></button>
+          <button className="icon-button" aria-label="설정" onClick={onOpenSettings}>
+            <Settings size={16} />
+          </button>
+        </div>
+        <div className="sent-list">
+          {replies.map((reply) => (
+            <article className="recap-card sent-list-card" key={reply.id}>
+              <header>
+                <Avatar sender={{ name: reply.senderName, initials: reply.senderInitials, color: reply.senderColor }} size="small" />
+                <strong>{reply.channel} · {reply.senderName}</strong>
+                <span>{reply.sentAtLabel}</span>
+              </header>
+              <p>{reply.body}</p>
+            </article>
+          ))}
+          {replies.length === 0 && <div className="no-results">아직 전송한 답장이 없어요.</div>}
+        </div>
+      </section>
       <StatusBar text={status} />
     </>
   );
@@ -728,16 +810,20 @@ function aiPreferenceLabel(provider: "auto" | "claude" | "codex"): string {
 function SettingsView({
   settings,
   onBack,
+  onClearAuth,
   onCompleteUpdate,
   onSettings
 }: {
   settings: SlackReplySettings;
   onBack: () => void;
+  onClearAuth: () => void;
   onCompleteUpdate: () => void;
   onSettings: (settings: SlackReplySettings) => void;
 }) {
   const [showChannelPicker, setShowChannelPicker] = useState(false);
   const [channelQuery, setChannelQuery] = useState("");
+  const [keywordDraft, setKeywordDraft] = useState("");
+  const [showKeywordInput, setShowKeywordInput] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiIntegrationStatus | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
 
@@ -774,6 +860,44 @@ function SettingsView({
     });
     setChannelQuery("");
     setShowChannelPicker(false);
+  }
+
+  function addKeyword() {
+    const nextKeyword = keywordDraft.trim();
+    if (!nextKeyword || settings.keywords.includes(nextKeyword)) {
+      return;
+    }
+
+    onSettings({
+      ...settings,
+      keywords: [...settings.keywords, nextKeyword]
+    });
+    setKeywordDraft("");
+    setShowKeywordInput(false);
+  }
+
+  function removeKeyword(keyword: string) {
+    onSettings({
+      ...settings,
+      keywords: settings.keywords.filter((item) => item !== keyword)
+    });
+  }
+
+  function editQuietHours() {
+    const nextQuietHours = window.prompt("방해금지 시간을 입력하세요.", settings.quietHours);
+    const trimmed = nextQuietHours?.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    onSettings({
+      ...settings,
+      quietHours: trimmed
+    });
+  }
+
+  function openExternal(url: string) {
+    void slackReplyApi.openExternal(url);
   }
 
   async function testAiIntegration() {
@@ -850,12 +974,40 @@ function SettingsView({
         </div>
         <div className="keyword-box">
           {settings.keywords.map((keyword) => (
-            <span className="keyword" key={keyword}>
+            <button className="keyword" key={keyword} onClick={() => removeKeyword(keyword)}>
               {keyword}
               <X size={13} />
-            </span>
+            </button>
           ))}
-          <button className="keyword add">추가</button>
+          {showKeywordInput && (
+            <input
+              className="keyword-input"
+              placeholder="키워드"
+              value={keywordDraft}
+              onChange={(event) => setKeywordDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  addKeyword();
+                }
+                if (event.key === "Escape") {
+                  setShowKeywordInput(false);
+                  setKeywordDraft("");
+                }
+              }}
+            />
+          )}
+          <button
+            className="keyword add"
+            onClick={() => {
+              if (showKeywordInput) {
+                addKeyword();
+                return;
+              }
+              setShowKeywordInput(true);
+            }}
+          >
+            추가
+          </button>
         </div>
       </SettingsSection>
 
@@ -915,7 +1067,7 @@ function SettingsView({
           <strong>방해금지 시간</strong>
           <span>이 시간에는 알림을 묶어서 보여줍니다.</span>
         </div>
-        <button className="quiet-hours">
+        <button className="quiet-hours" onClick={editQuietHours}>
           <Clock size={14} />
           {settings.quietHours}
         </button>
@@ -935,21 +1087,33 @@ function SettingsView({
       </section>
 
       <div className="settings-links">
-        <button>릴리즈 노트</button>
-        <button>도움말</button>
-        <button>Slack 연결 해제</button>
+        <button onClick={() => openExternal("https://github.com/gr8woo/slack-ai-reply-helper/releases")}>릴리즈 노트</button>
+        <button onClick={() => openExternal("https://github.com/gr8woo/slack-ai-reply-helper#readme")}>도움말</button>
+        <button className="danger-link" onClick={onClearAuth}>Slack 연결 해제</button>
       </div>
     </section>
   );
 }
 
-function EmptyView({ status, onRefresh, onSettings }: { status: string; onRefresh: () => void; onSettings: () => void }) {
+function EmptyView({
+  status,
+  sentCount,
+  onOpenSent,
+  onRefresh,
+  onSettings
+}: {
+  status: string;
+  sentCount: number;
+  onOpenSent: () => void;
+  onRefresh: () => void;
+  onSettings: () => void;
+}) {
   return (
     <>
       <section className="body empty-body">
         <div className="tabs-row empty-tabs">
           <button className="tab active">대기중</button>
-          <button className="tab">전송됨</button>
+          <button className="tab" onClick={onOpenSent}>전송됨 <span className="muted-count">{sentCount}</span></button>
           <button className="icon-button" aria-label="설정" onClick={onSettings}>
             <Settings size={16} />
           </button>

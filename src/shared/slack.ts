@@ -114,6 +114,7 @@ export interface SlackReplyApi {
   saveToken(token: string): Promise<SlackAuthResult>;
   importDesktopAuth(): Promise<SlackAuthResult>;
   clearAuth(): Promise<SlackAuthResult>;
+  openExternal(url: string): Promise<void>;
 }
 
 export interface SlackOAuthStartRequest {

@@ -11,11 +11,15 @@ import type {
   SlackReplySnapshot
 } from "../shared/slack";
 import type { AiDraftService } from "./aiDraftService";
+import { SettingsStore } from "./settingsStore";
 import { TokenStore } from "./tokenStore";
 
 interface SlackApiResponse {
   ok: boolean;
   error?: string;
+  response_metadata?: {
+    next_cursor?: string;
+  };
   [key: string]: unknown;
 }
 
@@ -118,7 +122,8 @@ function normalizeText(text: string, users: Map<string, SlackUser>): string {
 }
 
 export class SlackWebApiReplyService {
-  private settings: SlackReplySettings = defaultSettings;
+  private readonly settingsStore = new SettingsStore(defaultSettings);
+  private settings: SlackReplySettings = this.settingsStore.load();
   private sent: SentSlackReply[] = [];
   private userId: string | null = null;
   private users = new Map<string, SlackUser>();
@@ -211,6 +216,7 @@ export class SlackWebApiReplyService {
 
   updateSettings(settings: SlackReplySettings): SlackReplySettings {
     this.settings = settings;
+    this.settingsStore.save(this.settings);
     return this.settings;
   }
 
@@ -220,6 +226,7 @@ export class SlackWebApiReplyService {
       version: "v0.1.0",
       updateStatus: "done"
     };
+    this.settingsStore.save(this.settings);
     return this.settings;
   }
 
@@ -256,18 +263,30 @@ export class SlackWebApiReplyService {
   }
 
   private async fetchConversations(): Promise<SlackConversation[]> {
-    const response = await this.api<{ channels: SlackConversation[] }>("conversations.list", {
-      exclude_archived: "true",
-      limit: "100",
-      types: "public_channel,private_channel,im,mpim"
-    });
+    const conversations: SlackConversation[] = [];
+    let cursor: string | undefined;
 
-    const conversations = response.channels.filter((channel) => !channel.is_archived);
+    do {
+      const response = await this.api<{ channels: SlackConversation[]; response_metadata?: { next_cursor?: string } }>(
+        "conversations.list",
+        {
+          cursor,
+          exclude_archived: "true",
+          limit: "200",
+          types: "public_channel,private_channel,im,mpim"
+        }
+      );
+
+      conversations.push(...response.channels.filter((channel) => !channel.is_archived));
+      cursor = response.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+
     conversations.forEach((conversation) => this.conversations.set(conversation.id, conversation));
     return conversations;
   }
 
   private ensureSettingsChannels(conversations: SlackConversation[]): void {
+    const hadSavedChannels = this.settings.channels.length > 0;
     const availableChannels = conversations.map((conversation) => ({
       id: conversation.id,
       label: this.conversationLabel(conversation)
@@ -301,6 +320,10 @@ export class SlackWebApiReplyService {
       availableChannels,
       channels: selectedChannels
     };
+
+    if (!hadSavedChannels && selectedChannels.length > 0) {
+      this.settingsStore.save(this.settings);
+    }
   }
 
   private async fetchPendingMessages(): Promise<PendingSlackMessage[]> {
@@ -314,11 +337,16 @@ export class SlackWebApiReplyService {
         continue;
       }
 
-      const history = await this.api<{ messages: SlackMessage[] }>("conversations.history", {
-        channel: channel.id,
-        limit: "20",
-        oldest: String(since24h)
-      });
+      let history: { messages: SlackMessage[] };
+      try {
+        history = await this.api<{ messages: SlackMessage[] }>("conversations.history", {
+          channel: channel.id,
+          limit: "20",
+          oldest: String(since24h)
+        });
+      } catch {
+        continue;
+      }
 
       const messages = history.messages
         .filter((message) => message.type === "message" && !message.subtype && message.user && message.user !== this.userId && message.text && message.ts)

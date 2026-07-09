@@ -28,7 +28,8 @@ const api: SlackReplyApi = {
     ipcRenderer.invoke("slackReply:startOAuth", request) as Promise<SlackAuthResult>,
   saveToken: (token: string) => ipcRenderer.invoke("slackReply:saveToken", token) as Promise<SlackAuthResult>,
   importDesktopAuth: () => ipcRenderer.invoke("slackReply:importDesktopAuth") as Promise<SlackAuthResult>,
-  clearAuth: () => ipcRenderer.invoke("slackReply:clearAuth") as Promise<SlackAuthResult>
+  clearAuth: () => ipcRenderer.invoke("slackReply:clearAuth") as Promise<SlackAuthResult>,
+  openExternal: (url: string) => ipcRenderer.invoke("slackReply:openExternal", url) as Promise<void>
 };
 
 contextBridge.exposeInMainWorld("slackReply", api);

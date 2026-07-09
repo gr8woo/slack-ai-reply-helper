@@ -93,6 +93,9 @@ const fallbackApi: SlackReplyApi = {
   },
   async clearAuth() {
     return { ok: true };
+  },
+  async openExternal(url: string) {
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 };
 

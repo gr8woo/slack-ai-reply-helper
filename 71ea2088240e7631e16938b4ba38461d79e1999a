@@ -1,0 +1,25 @@
+src/main/main.ts
+  h_fd5bf09aa38af4 61
+src/main/slackWebApiService.ts
+  h_fd5bf09aa38af4 10,83,87-91,288-305,334-336,358
+src/preload/preload.ts
+  h_fd5bf09aa38af4 8,28-29
+src/renderer/App.tsx
+  h_fd5bf09aa38af4 871-873,891-927,929-933,935,1049-1058
+src/renderer/api.ts
+  h_fd5bf09aa38af4 7,86-91
+src/renderer/styles.css
+  h_fd5bf09aa38af4 1140-1150
+src/shared/slack.ts
+  h_fd5bf09aa38af4 113
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "71ea2088240e7631e16938b4ba38461d79e1999a",
+  "prompts": {},
+  "humans": {
+    "h_fd5bf09aa38af4": {
+      "author": "gr8woo@zigbang.com"
+    }
+  }
+}

@@ -58,6 +58,7 @@ app.whenReady().then(() => {
   ipcMain.handle("slackReply:completeUpdate", () => service.completeUpdate());
   ipcMain.handle("slackReply:getAiIntegrationStatus", () => service.getAiIntegrationStatus());
   ipcMain.handle("slackReply:testAiIntegration", () => service.getAiIntegrationStatus());
+  ipcMain.handle("slackReply:searchChannels", (_event, query: string) => service.searchChannels(query));
   ipcMain.handle("slackReply:startOAuth", (_event, request) => oauthService.startOAuth(request));
   ipcMain.handle("slackReply:saveToken", (_event, token: string) => oauthService.saveToken(token));
   ipcMain.handle("slackReply:importDesktopAuth", () => desktopAuthService.importFromSlackDesktop());

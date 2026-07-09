@@ -110,6 +110,7 @@ export interface SlackReplyApi {
   completeUpdate(): Promise<SlackReplySettings>;
   getAiIntegrationStatus(): Promise<AiIntegrationStatus>;
   testAiIntegration(): Promise<AiIntegrationStatus>;
+  searchChannels(query: string): Promise<SlackChannelOption[]>;
   startOAuth(request: SlackOAuthStartRequest): Promise<SlackAuthResult>;
   saveToken(token: string): Promise<SlackAuthResult>;
   importDesktopAuth(): Promise<SlackAuthResult>;

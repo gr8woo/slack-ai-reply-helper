@@ -7,6 +7,7 @@ import type {
   ReplyTone,
   SendReplyRequest,
   SentSlackReply,
+  SlackChannelOption,
   SlackReplySettings,
   SlackReplySnapshot
 } from "../shared/slack";
@@ -79,8 +80,14 @@ const defaultSettings: SlackReplySettings = {
 
 const conversationCacheTtlMs = 10 * 60 * 1000;
 const maxConversationPages = 3;
+const maxSearchConversationPages = 40;
 const maxSlackApiRetries = 2;
 const slackApiTimeoutMs = 15000;
+
+interface FetchConversationsOptions {
+  maxPages?: number;
+  refresh?: boolean;
+}
 
 interface SlackApiOptions {
   attempt?: number;
@@ -278,6 +285,24 @@ export class SlackWebApiReplyService {
     return this.aiDraftService.getIntegrationStatus(this.settings.aiIntegration.providerPreference);
   }
 
+  async searchChannels(query: string): Promise<SlackChannelOption[]> {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return this.settings.availableChannels;
+    }
+
+    await this.ensureIdentity();
+    const conversations = await this.fetchConversations({
+      maxPages: maxSearchConversationPages,
+      refresh: true
+    });
+    this.ensureSettingsChannels(conversations);
+
+    return this.settings.availableChannels
+      .filter((channel) => channel.label.toLowerCase().includes(normalizedQuery))
+      .slice(0, 50);
+  }
+
   private disconnected(
     connectionStatus: "missing_token" | "error",
     errorMessage: string
@@ -306,8 +331,9 @@ export class SlackWebApiReplyService {
     }
   }
 
-  private async fetchConversations(): Promise<SlackConversation[]> {
-    if (this.conversations.size > 0 && Date.now() - this.conversationsLoadedAt < conversationCacheTtlMs) {
+  private async fetchConversations(options: FetchConversationsOptions = {}): Promise<SlackConversation[]> {
+    const maxPages = options.maxPages ?? maxConversationPages;
+    if (!options.refresh && this.conversations.size > 0 && Date.now() - this.conversationsLoadedAt < conversationCacheTtlMs) {
       return Array.from(this.conversations.values());
     }
 
@@ -329,7 +355,7 @@ export class SlackWebApiReplyService {
       conversations.push(...response.channels.filter(isWatchableConversation));
       cursor = response.response_metadata?.next_cursor || undefined;
       pageCount += 1;
-    } while (cursor && pageCount < maxConversationPages);
+    } while (cursor && pageCount < maxPages);
 
     const sortedConversations = sortConversationsByRecentActivity(conversations);
     this.conversations = new Map(sortedConversations.map((conversation) => [conversation.id, conversation]));

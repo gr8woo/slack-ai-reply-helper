@@ -4,6 +4,7 @@ import type {
   SendReplyRequest,
   SentSlackReply,
   SlackReplyApi,
+  SlackChannelOption,
   SlackReplySettings,
   SlackReplySnapshot
 } from "../shared/slack";
@@ -81,6 +82,12 @@ const fallbackApi: SlackReplyApi = {
   },
   async testAiIntegration() {
     return fallbackAiStatus;
+  },
+  async searchChannels(query: string) {
+    const normalizedQuery = query.trim().toLowerCase();
+    return fallbackSnapshot.settings.availableChannels.filter((channel: SlackChannelOption) =>
+      channel.label.toLowerCase().includes(normalizedQuery)
+    );
   },
   async startOAuth() {
     return { ok: false, errorMessage: "Electron 데스크톱 앱에서만 OAuth 연결을 사용할 수 있습니다." };

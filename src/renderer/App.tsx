@@ -868,6 +868,9 @@ function SettingsView({
 }) {
   const [showChannelPicker, setShowChannelPicker] = useState(false);
   const [channelQuery, setChannelQuery] = useState("");
+  const [remoteChannelCandidates, setRemoteChannelCandidates] = useState<SlackChannelOption[]>([]);
+  const [isSearchingChannels, setIsSearchingChannels] = useState(false);
+  const [channelSearchError, setChannelSearchError] = useState<string | null>(null);
   const [keywordDraft, setKeywordDraft] = useState("");
   const [showKeywordInput, setShowKeywordInput] = useState(false);
   const [aiStatus, setAiStatus] = useState<AiIntegrationStatus | null>(null);
@@ -885,10 +888,51 @@ function SettingsView({
     };
   }, [settings.aiIntegration.providerPreference]);
 
+  useEffect(() => {
+    const query = channelQuery.trim();
+    if (!showChannelPicker || query.length < 2) {
+      setRemoteChannelCandidates([]);
+      setIsSearchingChannels(false);
+      setChannelSearchError(null);
+      return;
+    }
+
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      setIsSearchingChannels(true);
+      setChannelSearchError(null);
+      void slackReplyApi.searchChannels(query)
+        .then((channels) => {
+          if (alive) {
+            setRemoteChannelCandidates(channels);
+          }
+        })
+        .catch((error) => {
+          if (alive) {
+            setChannelSearchError(error instanceof Error ? error.message : "Slack 채널 검색에 실패했습니다.");
+          }
+        })
+        .finally(() => {
+          if (alive) {
+            setIsSearchingChannels(false);
+          }
+        });
+    }, 320);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [channelQuery, showChannelPicker]);
+
   const selectedChannelIds = new Set(settings.channels.map((channel) => channel.id));
-  const channelCandidates = settings.availableChannels
+  const normalizedChannelQuery = channelQuery.trim().toLowerCase();
+  const channelCandidateMap = new Map(
+    [...settings.availableChannels, ...remoteChannelCandidates].map((channel) => [channel.id, channel])
+  );
+  const channelCandidates = Array.from(channelCandidateMap.values())
     .filter((channel) => !selectedChannelIds.has(channel.id))
-    .filter((channel) => channel.label.toLowerCase().includes(channelQuery.trim().toLowerCase()));
+    .filter((channel) => channel.label.toLowerCase().includes(normalizedChannelQuery));
 
   function toggleChannel(id: string) {
     onSettings({
@@ -1002,7 +1046,16 @@ function SettingsView({
                     <Plus size={14} />
                   </button>
                 ))}
-                {channelCandidates.length === 0 && <div className="picker-empty">추가할 채널이 없어요.</div>}
+                {isSearchingChannels && (
+                  <div className="picker-empty searching">
+                    <RefreshCw className="spin" size={14} />
+                    Slack에서 더 찾는 중...
+                  </div>
+                )}
+                {!isSearchingChannels && channelSearchError && <div className="picker-empty">{channelSearchError}</div>}
+                {!isSearchingChannels && !channelSearchError && channelCandidates.length === 0 && (
+                  <div className="picker-empty">추가할 채널이 없어요.</div>
+                )}
               </div>
             </div>
           )}

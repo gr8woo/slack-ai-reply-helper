@@ -1137,6 +1137,17 @@ button:disabled {
   text-align: center;
 }
 
+.picker-empty.searching {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.picker-empty.searching svg {
+  color: var(--brand-500);
+}
+
 .check-list {
   display: grid;
   gap: 10px;

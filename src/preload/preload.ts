@@ -5,6 +5,7 @@ import type {
   SentSlackReply,
   SlackAuthResult,
   AiIntegrationStatus,
+  SlackChannelOption,
   SlackOAuthStartRequest,
   SlackReplyApi,
   SlackReplySettings,
@@ -24,6 +25,8 @@ const api: SlackReplyApi = {
   getAiIntegrationStatus: () =>
     ipcRenderer.invoke("slackReply:getAiIntegrationStatus") as Promise<AiIntegrationStatus>,
   testAiIntegration: () => ipcRenderer.invoke("slackReply:testAiIntegration") as Promise<AiIntegrationStatus>,
+  searchChannels: (query: string) =>
+    ipcRenderer.invoke("slackReply:searchChannels", query) as Promise<SlackChannelOption[]>,
   startOAuth: (request: SlackOAuthStartRequest) =>
     ipcRenderer.invoke("slackReply:startOAuth", request) as Promise<SlackAuthResult>,
   saveToken: (token: string) => ipcRenderer.invoke("slackReply:saveToken", token) as Promise<SlackAuthResult>,

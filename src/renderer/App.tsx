@@ -11,7 +11,7 @@ import {
   Undo2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { priorityLabels, reasonLabels, toneLabels } from "../shared/slack";
 import type {
   AiIntegrationStatus,
@@ -36,9 +36,10 @@ const filterLabels: Record<InboxFilter, string> = {
 };
 
 const tones: ReplyTone[] = ["formal", "default", "friendly", "short"];
+const slackRefreshIntervalMs = 30000;
 
 function statusText(count: number): string {
-  return count > 0 ? `Slack 연결됨 · ${count}개 채널 감시 중` : "백그라운드에서 3개 채널 감시 중...";
+  return count > 0 ? `Slack 연결됨 · ${count}개 채널 감시 중 · 30초마다 확인` : "백그라운드에서 채널 확인 중...";
 }
 
 export function App() {
@@ -55,21 +56,58 @@ export function App() {
   const [lastReply, setLastReply] = useState<SentSlackReply | null>(null);
   const [undoSeconds, setUndoSeconds] = useState(5);
 
-  useEffect(() => {
-    void slackReplyApi.getSnapshot().then((nextSnapshot) => {
-      setSnapshot(nextSnapshot);
+  const applySnapshot = useCallback((
+    nextSnapshot: SlackReplySnapshot,
+    options: { forceEmpty?: boolean; forceShowInbox?: boolean; syncDefaultTone?: boolean } = {}
+  ) => {
+    setSnapshot(nextSnapshot);
+    if (options.syncDefaultTone) {
       setTone(nextSnapshot.settings.defaultTone);
-      setSelectedId(nextSnapshot.pending[0]?.id ?? null);
-      if (nextSnapshot.pending.length === 0) {
-        setView("empty");
+    }
+    setSelectedId((currentId) => {
+      if (currentId && nextSnapshot.pending.some((message) => message.id === currentId)) {
+        return currentId;
       }
+      return nextSnapshot.pending[0]?.id ?? null;
+    });
+    setView((currentView) => {
+      if (nextSnapshot.pending.length > 0 && (currentView === "empty" || options.forceShowInbox)) {
+        return "inbox";
+      }
+      if (nextSnapshot.pending.length === 0 && options.forceEmpty && currentView === "inbox") {
+        return "empty";
+      }
+      return currentView;
     });
   }, []);
+
+  const refreshSnapshot = useCallback(async (
+    options: { forceEmpty?: boolean; forceShowInbox?: boolean; syncDefaultTone?: boolean } = {}
+  ) => {
+    const nextSnapshot = await slackReplyApi.getSnapshot();
+    applySnapshot(nextSnapshot, options);
+  }, [applySnapshot]);
+
+  useEffect(() => {
+    void refreshSnapshot({ forceEmpty: true, syncDefaultTone: true });
+  }, [refreshSnapshot]);
 
   const pending = snapshot?.pending ?? [];
   const settings = snapshot?.settings;
   const selectedMessage = pending.find((message) => message.id === selectedId) ?? pending[0] ?? null;
   const enabledChannelCount = settings?.channels.filter((channel) => channel.enabled).length ?? 0;
+
+  useEffect(() => {
+    if (!snapshot?.connected) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void refreshSnapshot();
+    }, slackRefreshIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [refreshSnapshot, snapshot?.connected]);
 
   const filteredMessages = useMemo(() => {
     if (filter === "all") {
@@ -148,7 +186,7 @@ export function App() {
 
     const reply = await slackReplyApi.sendReply({ messageId: selectedMessage.id, body: draft.trim() });
     const nextSnapshot = await slackReplyApi.getSnapshot();
-    setSnapshot(nextSnapshot);
+    applySnapshot(nextSnapshot);
     setLastReply(reply);
     setToast(`${reply.channel} 에 전송했어요`);
     window.setTimeout(() => setToast(null), 3200);
@@ -161,7 +199,7 @@ export function App() {
     }
 
     const nextSnapshot = await slackReplyApi.undoSend(lastReply.id);
-    setSnapshot(nextSnapshot);
+    applySnapshot(nextSnapshot);
     setSelectedId(lastReply.messageId);
     setLastReply(null);
     setView("reply");
@@ -212,11 +250,7 @@ export function App() {
           savedClientId={snapshot.slackClientId}
           status={snapshot.connectionStatus}
           onRetry={() => {
-            void slackReplyApi.getSnapshot().then((nextSnapshot) => {
-              setSnapshot(nextSnapshot);
-              setSelectedId(nextSnapshot.pending[0]?.id ?? null);
-              setView(nextSnapshot.pending.length === 0 ? "empty" : "inbox");
-            });
+            void refreshSnapshot({ forceEmpty: true, forceShowInbox: true, syncDefaultTone: true });
           }}
         />
       </AppShell>
@@ -276,7 +310,7 @@ export function App() {
       {view === "empty" && (
         <EmptyView
           status={statusText(enabledChannelCount)}
-          onRefresh={() => setView(pending.length > 0 ? "inbox" : "empty")}
+          onRefresh={() => void refreshSnapshot({ forceEmpty: true, forceShowInbox: true })}
           onSettings={() => setView("settings")}
         />
       )}

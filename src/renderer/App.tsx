@@ -27,6 +27,11 @@ import { slackReplyApi } from "./api";
 
 type View = "inbox" | "reply" | "sent" | "sentList" | "settings" | "empty";
 type InboxFilter = "all" | "mention" | "dm" | "question";
+type DraftPreviewState = {
+  body?: string;
+  error?: string;
+  isLoading: boolean;
+};
 
 const filterLabels: Record<InboxFilter, string> = {
   all: "전체",
@@ -42,6 +47,10 @@ function statusText(count: number): string {
   return count > 0 ? `Slack 연결됨 · ${count}개 채널 감시 중 · 30초마다 확인` : "백그라운드에서 채널 확인 중...";
 }
 
+function draftPreviewKey(messageId: string, tone: ReplyTone): string {
+  return `${messageId}:${tone}`;
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<SlackReplySnapshot | null>(null);
   const [view, setView] = useState<View>("inbox");
@@ -52,6 +61,8 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
+  const [draftPreviews, setDraftPreviews] = useState<Record<string, DraftPreviewState>>({});
+  const [quickSendingId, setQuickSendingId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -164,7 +175,65 @@ export function App() {
   }, [filter, pending]);
 
   useEffect(() => {
+    if (!settings || view !== "inbox") {
+      return;
+    }
+
+    let alive = true;
+    const previewMessages = filteredMessages.slice(0, 5);
+
+    previewMessages.forEach((message) => {
+      const key = draftPreviewKey(message.id, settings.defaultTone);
+      const current = draftPreviews[key];
+      if (current?.body || current?.isLoading || current?.error) {
+        return;
+      }
+
+      setDraftPreviews((items) => ({
+        ...items,
+        [key]: { isLoading: true }
+      }));
+
+      void slackReplyApi.generateDraft({ messageId: message.id, tone: settings.defaultTone, variantIndex: 0 })
+        .then((nextDraft) => {
+          if (!alive) {
+            return;
+          }
+          setDraftPreviews((items) => ({
+            ...items,
+            [key]: { body: nextDraft, isLoading: false }
+          }));
+        })
+        .catch((error) => {
+          if (!alive) {
+            return;
+          }
+          setDraftPreviews((items) => ({
+            ...items,
+            [key]: {
+              error: error instanceof Error ? error.message : "AI 초안 생성에 실패했습니다.",
+              isLoading: false
+            }
+          }));
+        });
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [draftPreviews, filteredMessages, settings, view]);
+
+  useEffect(() => {
     if (!selectedMessage || view !== "reply") {
+      return;
+    }
+
+    const previewKey = draftPreviewKey(selectedMessage.id, tone);
+    const preview = draftPreviews[previewKey];
+    if (variantIndex === 0 && preview?.body) {
+      setDraft(preview.body);
+      setDraftError(null);
+      setIsDrafting(false);
       return;
     }
 
@@ -176,6 +245,12 @@ export function App() {
       .then((nextDraft) => {
         if (alive) {
           setDraft(nextDraft);
+          if (variantIndex === 0) {
+            setDraftPreviews((items) => ({
+              ...items,
+              [previewKey]: { body: nextDraft, isLoading: false }
+            }));
+          }
         }
       })
       .catch((error) => {
@@ -192,7 +267,7 @@ export function App() {
     return () => {
       alive = false;
     };
-  }, [selectedMessage, tone, variantIndex, view]);
+  }, [draftPreviews, selectedMessage, tone, variantIndex, view]);
 
   useEffect(() => {
     if (!draftError || view !== "reply") {
@@ -218,10 +293,17 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [lastReply, view]);
 
-  function openReply(message: PendingSlackMessage) {
+  function openReply(message: PendingSlackMessage, initialDraft?: string) {
     setSelectedId(message.id);
     setVariantIndex(0);
     setTone(settings?.defaultTone ?? "default");
+    if (initialDraft && settings) {
+      setDraftPreviews((items) => ({
+        ...items,
+        [draftPreviewKey(message.id, settings.defaultTone)]: { body: initialDraft, isLoading: false }
+      }));
+      setDraft(initialDraft);
+    }
     setView("reply");
   }
 
@@ -237,6 +319,26 @@ export function App() {
     setToast(`${reply.channel} 에 전송했어요`);
     window.setTimeout(() => setToast(null), 3200);
     setView("sent");
+  }
+
+  async function sendPreviewReply(message: PendingSlackMessage, body: string) {
+    const trimmedBody = body.trim();
+    if (!trimmedBody) {
+      return;
+    }
+
+    setQuickSendingId(message.id);
+    try {
+      const reply = await slackReplyApi.sendReply({ messageId: message.id, body: trimmedBody });
+      const nextSnapshot = await slackReplyApi.getSnapshot();
+      applySnapshot(nextSnapshot);
+      setLastReply(reply);
+      setToast(`${reply.channel} 에 전송했어요`);
+      window.setTimeout(() => setToast(null), 3200);
+      setView("sent");
+    } finally {
+      setQuickSendingId(null);
+    }
   }
 
   async function undoSend() {
@@ -329,6 +431,10 @@ export function App() {
           onOpenReply={openReply}
           onOpenSent={() => setView("sentList")}
           onOpenSettings={() => setView("settings")}
+          onQuickSend={(message, body) => void sendPreviewReply(message, body)}
+          previewTone={settings.defaultTone}
+          previews={draftPreviews}
+          quickSendingId={quickSendingId}
         />
       )}
       {view === "reply" && selectedMessage && (
@@ -555,22 +661,30 @@ function InboxView({
   filter,
   messages,
   pendingCount,
+  previewTone,
+  previews,
+  quickSendingId,
   sentCount,
   status,
   onFilter,
   onOpenReply,
   onOpenSent,
-  onOpenSettings
+  onOpenSettings,
+  onQuickSend
 }: {
   filter: InboxFilter;
   messages: PendingSlackMessage[];
   pendingCount: number;
+  previewTone: ReplyTone;
+  previews: Record<string, DraftPreviewState>;
+  quickSendingId: string | null;
   sentCount: number;
   status: string;
   onFilter: (filter: InboxFilter) => void;
-  onOpenReply: (message: PendingSlackMessage) => void;
+  onOpenReply: (message: PendingSlackMessage, initialDraft?: string) => void;
   onOpenSent: () => void;
   onOpenSettings: () => void;
+  onQuickSend: (message: PendingSlackMessage, body: string) => void;
 }) {
   return (
     <>
@@ -593,7 +707,15 @@ function InboxView({
 
         <div className="message-list">
           {messages.map((message) => (
-            <MessageCard key={message.id} message={message} onOpen={() => onOpenReply(message)} />
+            <MessageCard
+              key={message.id}
+              message={message}
+              preview={previews[draftPreviewKey(message.id, previewTone)]}
+              quickSending={quickSendingId === message.id}
+              onEdit={(draftBody) => onOpenReply(message, draftBody)}
+              onOpen={() => onOpenReply(message)}
+              onQuickSend={(draftBody) => onQuickSend(message, draftBody)}
+            />
           ))}
           {messages.length === 0 && <div className="no-results">해당하는 메시지가 없어요.</div>}
         </div>
@@ -603,7 +725,23 @@ function InboxView({
   );
 }
 
-function MessageCard({ message, onOpen }: { message: PendingSlackMessage; onOpen: () => void }) {
+function MessageCard({
+  message,
+  onEdit,
+  onOpen,
+  onQuickSend,
+  preview,
+  quickSending
+}: {
+  message: PendingSlackMessage;
+  onEdit: (draftBody?: string) => void;
+  onOpen: () => void;
+  onQuickSend: (draftBody: string) => void;
+  preview?: DraftPreviewState;
+  quickSending: boolean;
+}) {
+  const draftBody = preview?.body?.trim() ?? "";
+
   return (
     <article className={`message-card priority-${message.priority}`} onClick={onOpen}>
       <div className="card-head">
@@ -619,9 +757,38 @@ function MessageCard({ message, onOpen }: { message: PendingSlackMessage; onOpen
       </div>
       <TagRow tags={message.reasonTags.filter((tag) => tag !== "urgent")} />
       <p className="message-body">"{message.body}"</p>
+      <div className="inline-draft">
+        <div className="inline-draft-head">
+          <Sparkles size={14} />
+          <strong>AI 답장 초안</strong>
+          {preview?.isLoading && <span>작성 중...</span>}
+        </div>
+        {preview?.body && <p>{preview.body}</p>}
+        {preview?.error && <p className="inline-draft-error">{preview.error}</p>}
+        {!preview?.body && !preview?.isLoading && !preview?.error && <p className="inline-draft-muted">곧 초안이 표시됩니다.</p>}
+      </div>
       <div className="card-foot">
         <span>{message.ageLabel}</span>
-        <button>답장 제안 보기</button>
+        <div className="card-actions">
+          <button
+            disabled={!draftBody || quickSending}
+            onClick={(event) => {
+              event.stopPropagation();
+              onQuickSend(draftBody);
+            }}
+          >
+            <Send size={14} />
+            {quickSending ? "전송 중..." : "바로 전송"}
+          </button>
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit(draftBody || undefined);
+            }}
+          >
+            수정
+          </button>
+        </div>
       </div>
     </article>
   );

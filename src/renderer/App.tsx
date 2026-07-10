@@ -1115,7 +1115,8 @@ function SettingsView({
     };
   }, [channelQuery, showChannelPicker]);
 
-  const selectedChannelIds = new Set(settings.channels.map((channel) => channel.id));
+  const watchedChannels = settings.channels.filter((channel) => channel.enabled);
+  const selectedChannelIds = new Set(watchedChannels.map((channel) => channel.id));
   const normalizedChannelQuery = channelQuery.trim().toLowerCase();
   const channelCandidateMap = new Map(
     [...settings.availableChannels, ...remoteChannelCandidates].map((channel) => [channel.id, channel])
@@ -1134,7 +1135,10 @@ function SettingsView({
   function addChannel(channel: SlackChannelOption) {
     onSettings({
       ...settings,
-      channels: [...settings.channels, { ...channel, enabled: true }]
+      channels: [
+        ...settings.channels.filter((item) => item.id !== channel.id),
+        { ...channel, enabled: true }
+      ]
     });
     setChannelQuery("");
     setShowChannelPicker(false);
@@ -1203,7 +1207,7 @@ function SettingsView({
 
       <SettingsSection description="선택한 채널의 메시지만 감지합니다." title="감시할 채널">
         <div className="settings-card">
-          {settings.channels.map((channel) => (
+          {watchedChannels.map((channel) => (
             <div className="settings-row" key={channel.id}>
               <span>{channel.label}</span>
               <button
@@ -1215,6 +1219,9 @@ function SettingsView({
               </button>
             </div>
           ))}
+          {watchedChannels.length === 0 && (
+            <div className="settings-empty">감시 중인 채널이 없어요.</div>
+          )}
           <button className="add-channel" onClick={() => setShowChannelPicker((open) => !open)}>
             <Plus size={14} />
             {showChannelPicker ? "채널 추가 닫기" : "채널 추가"}
@@ -1407,19 +1414,21 @@ function EmptyView({
             <Settings size={16} />
           </button>
         </div>
-        <div className="radar" aria-hidden="true">
-          <span className="radar-ring one" />
-          <span className="radar-ring two" />
-          <span className="radar-core">
-            <Check size={23} />
-          </span>
+        <div className="empty-state">
+          <div className="radar" aria-hidden="true">
+            <span className="radar-ring one" />
+            <span className="radar-ring two" />
+            <span className="radar-core">
+              <Check size={23} />
+            </span>
+          </div>
+          <h1>모두 답장했어요</h1>
+          <p>지금 답장해야 할 메시지가 없어요.<br />새 메시지가 감지되면 여기에 표시됩니다.</p>
+          <button className="refresh-button" disabled={isRefreshing} onClick={onRefresh}>
+            {isRefreshing ? <RefreshCw className="spin" size={16} /> : <RotateCcw size={16} />}
+            {isRefreshing ? "확인 중..." : "지금 새로고침"}
+          </button>
         </div>
-        <h1>모두 답장했어요</h1>
-        <p>지금 답장해야 할 메시지가 없어요.<br />새 메시지가 감지되면 여기에 표시됩니다.</p>
-        <button className="refresh-button" disabled={isRefreshing} onClick={onRefresh}>
-          {isRefreshing ? <RefreshCw className="spin" size={16} /> : <RotateCcw size={16} />}
-          {isRefreshing ? "확인 중..." : "지금 새로고침"}
-        </button>
       </section>
       <StatusBar text={isRefreshing ? "Slack 확인 중..." : status} blinking />
     </>

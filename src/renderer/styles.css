@@ -840,6 +840,7 @@ button:disabled {
 
 .sent-body > p,
 .empty-body > p,
+.empty-state > p,
 .connection-body > p {
   margin: 0 0 18px;
   color: var(--tertiary);
@@ -1066,9 +1067,10 @@ button:disabled {
 }
 
 .settings-body {
-  max-height: 560px;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
+  align-content: start;
   gap: 22px;
   padding: 20px 24px 24px;
 }
@@ -1108,6 +1110,16 @@ button:disabled {
 
 .settings-row:last-of-type {
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-empty {
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--tertiary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .switch {
@@ -1461,11 +1473,22 @@ button:disabled {
 .empty-body {
   min-height: 406px;
   padding-top: 10px;
+  justify-content: flex-start;
 }
 
 .empty-tabs {
   align-self: stretch;
-  margin: 0 2px auto;
+  margin: 0 2px;
+}
+
+.empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 34px;
 }
 
 .radar {

@@ -1,0 +1,15 @@
+src/main/slackWebApiService.ts
+  h_fd5bf09aa38af4 154,164-167,571,614,629-643
+src/renderer/App.tsx
+  h_fd5bf09aa38af4 214,218-222,238
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "bfca2f4a5a9fed1bebd38bc2cf30fad785a8f87d",
+  "prompts": {},
+  "humans": {
+    "h_fd5bf09aa38af4": {
+      "author": "gr8woo@zigbang.com"
+    }
+  }
+}

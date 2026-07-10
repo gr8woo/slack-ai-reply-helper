@@ -30,6 +30,7 @@ type InboxFilter = "all" | "mention" | "dm" | "question";
 type DraftPreviewState = {
   body?: string;
   error?: string;
+  isFallback?: boolean;
   isLoading: boolean;
 };
 
@@ -42,6 +43,7 @@ const filterLabels: Record<InboxFilter, string> = {
 
 const tones: ReplyTone[] = ["formal", "default", "friendly", "short"];
 const slackRefreshIntervalMs = 30000;
+const draftPreviewFallbackMs = 12000;
 
 function statusText(count: number): string {
   return count > 0 ? `Slack 연결됨 · ${count}개 채널 감시 중 · 30초마다 확인` : "백그라운드에서 채널 확인 중...";
@@ -49,6 +51,27 @@ function statusText(count: number): string {
 
 function draftPreviewKey(messageId: string, tone: ReplyTone): string {
   return `${messageId}:${tone}`;
+}
+
+function fallbackDraftForMessage(message: PendingSlackMessage): string {
+  const body = message.body;
+  const looksLikeScheduleQuestion = /[?？]/.test(body)
+    || body.includes("괜찮")
+    || body.includes("가능")
+    || body.includes("될까요")
+    || body.includes("미팅")
+    || body.includes("킥오프")
+    || body.includes("일정");
+
+  if (looksLikeScheduleQuestion) {
+    return "네, 괜찮습니다. 일정 잡아주시면 확인하고 참석하겠습니다.";
+  }
+
+  if (message.reasonTags.includes("question")) {
+    return "확인했습니다. 내용 살펴보고 답변드리겠습니다.";
+  }
+
+  return "확인했습니다. 필요한 내용 정리해서 답변드리겠습니다.";
 }
 
 export function App() {
@@ -68,6 +91,7 @@ export function App() {
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [lastReply, setLastReply] = useState<SentSlackReply | null>(null);
   const [undoSeconds, setUndoSeconds] = useState(5);
+  const draftPreviewRequestsRef = useRef<Set<string>>(new Set());
   const viewRef = useRef<View>("inbox");
   const refreshMessageTimerRef = useRef<number | null>(null);
 
@@ -179,49 +203,62 @@ export function App() {
       return;
     }
 
-    let alive = true;
     const previewMessages = filteredMessages.slice(0, 5);
 
     previewMessages.forEach((message) => {
       const key = draftPreviewKey(message.id, settings.defaultTone);
       const current = draftPreviews[key];
-      if (current?.body || current?.isLoading || current?.error) {
+      if (current?.body || current?.isLoading || current?.error || draftPreviewRequestsRef.current.has(key)) {
         return;
       }
+      draftPreviewRequestsRef.current.add(key);
 
       setDraftPreviews((items) => ({
         ...items,
         [key]: { isLoading: true }
       }));
 
+      const fallbackTimer = window.setTimeout(() => {
+        setDraftPreviews((items) => {
+          const latest = items[key];
+          if (latest?.body && !latest.isLoading) {
+            return items;
+          }
+          return {
+            ...items,
+            [key]: {
+              body: fallbackDraftForMessage(message),
+              isFallback: true,
+              isLoading: false
+            }
+          };
+        });
+      }, draftPreviewFallbackMs);
+
       void slackReplyApi.generateDraft({ messageId: message.id, tone: settings.defaultTone, variantIndex: 0 })
         .then((nextDraft) => {
-          if (!alive) {
-            return;
-          }
+          window.clearTimeout(fallbackTimer);
+          draftPreviewRequestsRef.current.delete(key);
           setDraftPreviews((items) => ({
             ...items,
             [key]: { body: nextDraft, isLoading: false }
           }));
         })
         .catch((error) => {
-          if (!alive) {
-            return;
-          }
+          window.clearTimeout(fallbackTimer);
+          draftPreviewRequestsRef.current.delete(key);
           setDraftPreviews((items) => ({
             ...items,
             [key]: {
+              body: fallbackDraftForMessage(message),
               error: error instanceof Error ? error.message : "AI 초안 생성에 실패했습니다.",
+              isFallback: true,
               isLoading: false
             }
           }));
         });
     });
-
-    return () => {
-      alive = false;
-    };
-  }, [draftPreviews, filteredMessages, settings, view]);
+  }, [filteredMessages, settings?.defaultTone, view]);
 
   useEffect(() => {
     if (!selectedMessage || view !== "reply") {
@@ -230,7 +267,7 @@ export function App() {
 
     const previewKey = draftPreviewKey(selectedMessage.id, tone);
     const preview = draftPreviews[previewKey];
-    if (variantIndex === 0 && preview?.body) {
+    if (variantIndex === 0 && preview?.body && !preview.isFallback) {
       setDraft(preview.body);
       setDraftError(null);
       setIsDrafting(false);
@@ -240,7 +277,7 @@ export function App() {
     let alive = true;
     setIsDrafting(true);
     setDraftError(null);
-    setDraft("");
+    setDraft(variantIndex === 0 && preview?.body ? preview.body : "");
     void slackReplyApi.generateDraft({ messageId: selectedMessage.id, tone, variantIndex })
       .then((nextDraft) => {
         if (alive) {
@@ -760,11 +797,12 @@ function MessageCard({
       <div className="inline-draft">
         <div className="inline-draft-head">
           <Sparkles size={14} />
-          <strong>AI 답장 초안</strong>
+          <strong>{preview?.isFallback ? "기본 답장 초안" : "AI 답장 초안"}</strong>
           {preview?.isLoading && <span>작성 중...</span>}
+          {preview?.isFallback && !preview.isLoading && <span>AI 지연 시 임시 초안</span>}
         </div>
         {preview?.body && <p>{preview.body}</p>}
-        {preview?.error && <p className="inline-draft-error">{preview.error}</p>}
+        {preview?.error && !preview?.body && <p className="inline-draft-error">{preview.error}</p>}
         {!preview?.body && !preview?.isLoading && !preview?.error && <p className="inline-draft-muted">곧 초안이 표시됩니다.</p>}
       </div>
       <div className="card-foot">

@@ -1,0 +1,15 @@
+src/renderer/App.tsx
+  h_fd5bf09aa38af4 30-34,50-53,64-65,177-225,231-239,248-253,270,296,300-306,324-343,434-437,664-666,672-673,678-680,684,687,710-718,728-744,760-769,772-791
+src/renderer/styles.css
+  h_fd5bf09aa38af4 391-393,399-408,410,412,418-426,431-473
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "8fd41b45f662995cb5592f8b26a4a4cb6854c731",
+  "prompts": {},
+  "humans": {
+    "h_fd5bf09aa38af4": {
+      "author": "gr8woo@zigbang.com"
+    }
+  }
+}

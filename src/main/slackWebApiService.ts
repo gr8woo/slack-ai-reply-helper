@@ -151,7 +151,7 @@ function normalizeText(text: string, users: Map<string, SlackUser>): string {
   return text
     .replace(/<@([A-Z0-9]+)>/g, (_match, userId: string) => {
       const user = users.get(userId);
-      return `@${user?.profile?.display_name || user?.real_name || user?.name || userId}`;
+      return `@${user?.profile?.display_name || user?.real_name || user?.name || "사용자"}`;
     })
     .replace(/<#([A-Z0-9]+)\|([^>]+)>/g, "#$2")
     .replace(/<([^|>]+)\|([^>]+)>/g, "$2")
@@ -159,6 +159,10 @@ function normalizeText(text: string, users: Map<string, SlackUser>): string {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
+}
+
+function extractMentionUserIds(text: string): string[] {
+  return Array.from(text.matchAll(/<@([A-Z0-9]+)>/g), (match) => match[1]).filter((userId): userId is string => Boolean(userId));
 }
 
 function isWatchableConversation(conversation: SlackConversation): boolean {
@@ -564,6 +568,7 @@ export class SlackWebApiReplyService {
     }
 
     const user = await this.fetchUser(message.user);
+    await this.prefetchMentionUsers(rawText);
     const senderName = user.profile?.display_name || user.profile?.real_name || user.real_name || user.name || message.user;
     const normalizedText = normalizeText(rawText, this.users);
     const priority: Priority = tags.includes("urgent") || (tags.includes("mention") && tags.includes("question")) ? "urgent" : tags.includes("dm") ? "normal" : "low";
@@ -606,6 +611,7 @@ export class SlackWebApiReplyService {
           continue;
         }
         const userName = reply.user ? await this.fetchDisplayName(reply.user) : "Slack";
+        await this.prefetchMentionUsers(text);
         lines.push(`${userName}: ${normalizeText(text, this.users)}`);
       }
 
@@ -618,6 +624,21 @@ export class SlackWebApiReplyService {
   private async fetchDisplayName(userId: string): Promise<string> {
     const user = await this.fetchUser(userId);
     return user.profile?.display_name || user.profile?.real_name || user.real_name || user.name || userId;
+  }
+
+  private async prefetchMentionUsers(text: string): Promise<void> {
+    const userIds = extractMentionUserIds(text).filter((userId) => !this.users.has(userId));
+    if (userIds.length === 0) {
+      return;
+    }
+
+    await Promise.all(userIds.map(async (userId) => {
+      try {
+        await this.fetchUser(userId);
+      } catch {
+        // Keep rendering the message even if Slack cannot resolve one mention.
+      }
+    }));
   }
 
   private async fetchUser(userId: string): Promise<SlackUser> {

@@ -43,7 +43,6 @@ const filterLabels: Record<InboxFilter, string> = {
 
 const tones: ReplyTone[] = ["formal", "default", "friendly", "short"];
 const slackRefreshIntervalMs = 30000;
-const draftPreviewFallbackMs = 12000;
 
 function statusText(count: number): string {
   return count > 0 ? `Slack 연결됨 · ${count}개 채널 감시 중 · 30초마다 확인` : "백그라운드에서 채널 확인 중...";
@@ -212,32 +211,19 @@ export function App() {
         return;
       }
       draftPreviewRequestsRef.current.add(key);
+      const fallbackDraft = fallbackDraftForMessage(message);
 
       setDraftPreviews((items) => ({
         ...items,
-        [key]: { isLoading: true }
+        [key]: {
+          body: fallbackDraft,
+          isFallback: true,
+          isLoading: false
+        }
       }));
-
-      const fallbackTimer = window.setTimeout(() => {
-        setDraftPreviews((items) => {
-          const latest = items[key];
-          if (latest?.body && !latest.isLoading) {
-            return items;
-          }
-          return {
-            ...items,
-            [key]: {
-              body: fallbackDraftForMessage(message),
-              isFallback: true,
-              isLoading: false
-            }
-          };
-        });
-      }, draftPreviewFallbackMs);
 
       void slackReplyApi.generateDraft({ messageId: message.id, tone: settings.defaultTone, variantIndex: 0 })
         .then((nextDraft) => {
-          window.clearTimeout(fallbackTimer);
           draftPreviewRequestsRef.current.delete(key);
           setDraftPreviews((items) => ({
             ...items,
@@ -245,12 +231,11 @@ export function App() {
           }));
         })
         .catch((error) => {
-          window.clearTimeout(fallbackTimer);
           draftPreviewRequestsRef.current.delete(key);
           setDraftPreviews((items) => ({
             ...items,
             [key]: {
-              body: fallbackDraftForMessage(message),
+              body: fallbackDraft,
               error: error instanceof Error ? error.message : "AI 초안 생성에 실패했습니다.",
               isFallback: true,
               isLoading: false

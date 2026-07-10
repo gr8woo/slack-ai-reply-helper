@@ -82,7 +82,7 @@ const conversationCacheTtlMs = 10 * 60 * 1000;
 const searchConversationCacheTtlMs = 60 * 60 * 1000;
 const conversationPageLimit = "1000";
 const maxConversationPages = 1;
-const maxSearchConversationPages = 5;
+const maxSearchConversationPages = 25;
 const maxSlackApiRetries = 2;
 const slackApiTimeoutMs = 15000;
 
